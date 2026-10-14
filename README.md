@@ -58,6 +58,18 @@ Upstream SDK licenses remain separate and must be reviewed for redistribution.
 The LXMF/RNS integration in particular does **not** gain license insulation
 merely by being moved to another repository.
 
+## Offline samples and diagnostics
+
+This distribution contributes native fake values and an opaque conversation
+address to `medre config sample`. Core includes only installed contributors;
+a single contributor gets two fake instances for offline routing. Native
+packet simulation methods remain adapter-specific. Run-session canonical
+callback injection uses `AdapterContract.publish_inbound(event)`.
+
+`medre adapters check --config bridge.yaml` distinguishes missing distributions
+from broken/conflicting entry points. Basic CLI help and unrelated healthy
+providers remain available when another provider fails discovery.
+
 ## Tests
 
 Protocol and SDK contract tests live in this repository with adapter-owned
@@ -125,3 +137,9 @@ the manifest diff, publish adapter commits first, then publish the core pin
 update. A failed write preserves the original manifest and cleans up the temporary
 file. Deployment projects should separately lock their chosen complete
 package graph.
+
+Standalone CI records the exact core and adapter SHAs tested against its
+configured core baseline. MEDRE core CI qualifies the pinned compatibility
+pair; a standalone green result does not qualify another core revision.
+SDK qualification extras come from the selected core compatibility manifest,
+while SDK versions remain authoritative in this adapter's package metadata.

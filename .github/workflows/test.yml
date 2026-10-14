@@ -36,6 +36,14 @@ jobs:
           cache-dependency-glob: |
             .core/uv.lock
             pyproject.toml
+      - name: Record baseline revision pair
+        shell: bash
+        run: |
+          core_sha=$(git -C .core rev-parse HEAD)
+          adapter_sha=$(git rev-parse HEAD)
+          echo "Core baseline: ${core_sha}; adapter: ${adapter_sha}"
+          echo "Core baseline: ${core_sha}; adapter: ${adapter_sha}" >> "$GITHUB_STEP_SUMMARY"
+          echo "The pinned compatibility pair is qualified by MEDRE core CI." >> "$GITHUB_STEP_SUMMARY"
       - name: Install core test environment
         run: uv sync --project .core --locked --extra dev
       - name: Install this adapter without native SDKs
@@ -43,7 +51,7 @@ jobs:
         run: uv pip install --python .core/.venv/bin/python --no-deps -e .
       - name: Install this adapter and its own SDK dependencies
         if: matrix.mode == 'sdk'
-        run: uv pip install --python .core/.venv/bin/python -e ".[test]"
+        run: .core/.venv/bin/python .core/scripts/ci/install_checkout_adapter.py --adapter . --test --python .core/.venv/bin/python
       - name: Run deterministic tests
         if: matrix.mode == 'fake'
         run: .core/.venv/bin/python -m pytest -q -ra

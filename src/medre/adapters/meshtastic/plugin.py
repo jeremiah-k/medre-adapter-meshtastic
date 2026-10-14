@@ -5,6 +5,7 @@ from medre.adapter_registry import AdapterSpec, SymbolRef
 
 def adapter_spec() -> AdapterSpec:
     return AdapterSpec(
+        sample_config=SymbolRef("medre.adapters.meshtastic.sample", "sample_config"),
         transport="meshtastic",
         config=SymbolRef("medre.config.adapters.meshtastic", "MeshtasticConfig"),
         runtime_config=SymbolRef(

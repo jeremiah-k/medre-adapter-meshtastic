@@ -8,8 +8,10 @@ version literals into a second place that Renovate must update by hand.
 from __future__ import annotations
 
 import re
+import tomllib
 from dataclasses import dataclass
 from importlib import metadata
+from pathlib import Path
 from typing import Iterable
 
 from packaging.requirements import Requirement
@@ -29,15 +31,19 @@ def _canonical_distribution_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def declared_extra_pins(extra: str) -> dict[str, DeclaredSdkPin]:
+def declared_extra_pins(
+    extra: str, *, sdk_extra: str = ""
+) -> dict[str, DeclaredSdkPin]:
     """Read authoritative SDK pins from the installed adapter's metadata.
 
     Source provenance (PyPI, Git, or local checkout) is intentionally irrelevant.
     MEDRE core does not declare transport SDK dependencies.
     """
-    transport = "matrix" if extra == "matrix-e2e" else extra
-    dist = metadata.distribution(f"medre-adapter-{transport}")
-    selected_extra = "e2e" if extra == "matrix-e2e" else ""
+    project = tomllib.loads(
+        (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text()
+    )["project"]
+    dist = metadata.distribution(project["name"])
+    selected_extra = sdk_extra
     pins: dict[str, DeclaredSdkPin] = {}
     for raw in dist.requires or ():
         requirement = Requirement(raw)
@@ -68,9 +74,11 @@ def declared_extra_pins(extra: str) -> dict[str, DeclaredSdkPin]:
 def assert_installed_extra_matches_declared_pins(
     extra: str,
     distributions: Iterable[str],
+    *,
+    sdk_extra: str = "",
 ) -> None:
     """Assert installed SDK distributions match their adapter's exact pins."""
-    pins = declared_extra_pins(extra)
+    pins = declared_extra_pins(extra, sdk_extra=sdk_extra)
     requested = {_canonical_distribution_name(name) for name in distributions}
     missing = requested - pins.keys()
     if missing:
