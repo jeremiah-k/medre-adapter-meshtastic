@@ -479,9 +479,8 @@ class FakeMeshtasticAdapter(AdapterContract):
     ) -> CanonicalEvent:
         """Create a minimal :class:`CanonicalEvent` for testing.
 
-        Signature-compatible with
-        :meth:`~medre.adapters.matrix.fakes.matrix.FakeMatrixAdapter.make_event`
-        so the core smoke runtime can inject via any fake adapter.
+        Implements MEDRE's optional smoke-source event factory contract
+        so the core smoke runtime can inject via this fake adapter.
 
         Parameters
         ----------
