@@ -1,6 +1,6 @@
 # medre-adapter-meshtastic
 
-Independent meshtastic adapter for MEDRE, extracted from MEDRE commit
+Independent Meshtastic adapter for MEDRE, extracted from MEDRE commit
 `e59c29dd31a95860d1cdbc19e531896616627a68`.
 
 This repository retains the original adapter source history, with original
@@ -33,6 +33,26 @@ verify that the transport is discoverable. See
 [MEDRE adapter installation](https://github.com/jeremiah-k/medre/blob/main/docs/ops/adapter-installation.md)
 for mixed PyPI/Git/local installations and community adapters.
 
+## Ownership and imports
+
+This distribution owns Meshtastic's transport implementation, configuration models,
+runtime wrapper, fake adapter, native addressing behavior, SDK requirements,
+and protocol/SDK tests. MEDRE core owns generic events, routing, lifecycle,
+storage, evidence, configuration orchestration, and installed-package discovery.
+
+| Surface         | Adapter-owned import                                               |
+| --------------- | ------------------------------------------------------------------ |
+| Config models   | `medre.config.adapters.meshtastic`                                 |
+| Runtime wrapper | `medre.config.adapters.meshtastic_runtime.MeshtasticRuntimeConfig` |
+| SDK-free fake   | `medre.adapters.fakes.meshtastic.FakeMeshtasticAdapter`            |
+
+Import the runtime wrapper from this distribution directly. Core has no named
+wrapper compatibility bridge or transport SDK extras. The supported MEDRE
+interface range and native SDK pins are declared in this project's
+`pyproject.toml`; use a matching core revision during pre-release development.
+Community adapter authors can use their own distribution names, import packages,
+and hosting sources with the same `medre.adapters` entry-point contract.
+
 License: GPL-3.0-or-later for the original MEDRE-authored adapter files.
 Upstream SDK licenses remain separate and must be reviewed for redistribution.
 The LXMF/RNS integration in particular does **not** gain license insulation
@@ -40,28 +60,68 @@ merely by being moved to another repository.
 
 ## Tests
 
-Protocol, SDK contract, and local integration tests live in this repository.
-They use adapter-owned helpers; the MEDRE checkout's `tests` package is not
-required. Cross-adapter routing and lifecycle tests remain in MEDRE.
+Protocol and SDK contract tests live in this repository with adapter-owned
+helpers. Cross-adapter routing and lifecycle tests remain in MEDRE. Run the
+following from this repository in a fresh virtual environment, with a matching
+MEDRE checkout at `../medre`.
 
 ```bash
-python -m pip install -e ../medre -e '.[test]'
+# SDK-free fake tier: core dev supplies test tooling; skip this adapter's SDK deps.
+python -m pip install -e '../medre[dev]'
+python -m pip install --no-deps -e .
 python -m pytest -q
-python -m pytest -m "meshtastic_sdk and not local_integration and not soak" -v
+
+# Native SDK tier: this distribution supplies its own SDK pins.
+python -m pip install -e '.[test]'
+python -m pytest -v -m "meshtastic_sdk and not local_integration and not soak and not live and not hardware and not docker"
 ```
 
-The default tier uses deterministic fakes. Hardware, live services, SDK
-contracts, local integration, and soak tests are opt-in through pytest markers.
+The default pytest selection excludes SDK, service, hardware, local integration,
+and soak tiers. Installing SDKs afterward leaves the same environment SDK-enabled;
+use a fresh environment for a new SDK-free proof.
 
-The repository CI installs only MEDRE core and this adapter. Its fake job
-omits all native SDKs; the SDK job uses this distribution's declared pins.
-`workflow_dispatch` accepts a MEDRE `core_ref` for coordinated changes. Core's
-separate compatibility matrix tests the assembled first-party adapter set.
+## Fake smoke sources
+
+The fake provides a synchronous `make_event(text=..., event_kind=...)` returning
+a canonical event with its own adapter instance ID. After installing all
+providers referenced by a fake bridge config, exercise a source with:
+
+```bash
+medre smoke --config bridge.yaml --source-adapter ADAPTER_ID --json
+```
+
+Use the configured instance ID, which may differ from the transport name. Each
+normal smoke tests one source; inspect `source_candidates` and
+`coverage_scope: single_source` in its report. Eligible sources must have started
+and provide the helper. A pass requires delivery for every matched configured
+route target, including targets unavailable after construction or startup.
+Factory errors fail the smoke and trigger runtime cleanup. The result proves
+fake direct-pipeline behavior; native callbacks and recipient delivery have
+separate qualification tiers.
 
 ## Coordinated CI
 
+The repository CI installs MEDRE core and this adapter. Its fake job omits
+native SDK dependencies; its SDK job installs this distribution's declared pins.
 CI tests against MEDRE `main` by default. Set the repository Actions variable
 `MEDRE_CORE_REF` to a branch or commit during coordinated core development;
 the manual workflow input `core_ref` overrides it. Clear the variable after
-the compatible core revision reaches `main`. Core CI also tests this adapter
-against the exact provider revision recorded in its compatibility manifest.
+the compatible core revision reaches `main`.
+
+Core's compatibility matrix tests each selected adapter at the exact commit
+recorded in its manifest, along with cross-adapter behavior. In a coordinated
+checkout containing the selected sibling repos, run from MEDRE:
+
+```bash
+python scripts/ci/adapter_matrix.py --check-local
+# Once all adapter changes are committed:
+python scripts/ci/adapter_matrix.py --sync-local
+```
+
+The helper validates clean sibling checkouts and their entry points, and compares
+Python distribution names using normalized case/separator spelling. Synchronizing
+updates the manifest atomically without fetching or installing packages. Review
+the manifest diff, publish adapter commits first, then publish the core pin
+update. A failed write preserves the original manifest and cleans up the temporary
+file. Deployment projects should separately lock their chosen complete
+package graph.
