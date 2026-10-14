@@ -391,7 +391,7 @@ class MeshtasticSession:
         else:
             if not HAS_MESHTASTIC:
                 raise MeshtasticConnectionError(
-                    "mtjk not installed; pip install 'medre[meshtastic]'"
+                    "mtjk not installed; pip install 'medre-adapter-meshtastic'"
                 )
             client = self._create_client()
             self._activate_client(client)

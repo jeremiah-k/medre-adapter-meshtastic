@@ -37,3 +37,31 @@ License: GPL-3.0-or-later for the original MEDRE-authored adapter files.
 Upstream SDK licenses remain separate and must be reviewed for redistribution.
 The LXMF/RNS integration in particular does **not** gain license insulation
 merely by being moved to another repository.
+
+## Tests
+
+Protocol, SDK contract, and local integration tests live in this repository.
+They use adapter-owned helpers; the MEDRE checkout's `tests` package is not
+required. Cross-adapter routing and lifecycle tests remain in MEDRE.
+
+```bash
+python -m pip install -e ../medre -e '.[test]'
+python -m pytest -q
+python -m pytest -m "meshtastic_sdk and not local_integration and not soak" -v
+```
+
+The default tier uses deterministic fakes. Hardware, live services, SDK
+contracts, local integration, and soak tests are opt-in through pytest markers.
+
+The repository CI installs only MEDRE core and this adapter. Its fake job
+omits all native SDKs; the SDK job uses this distribution's declared pins.
+`workflow_dispatch` accepts a MEDRE `core_ref` for coordinated changes. Core's
+separate compatibility matrix tests the assembled first-party adapter set.
+
+## Coordinated CI
+
+CI tests against MEDRE `main` by default. Set the repository Actions variable
+`MEDRE_CORE_REF` to a branch or commit during coordinated core development;
+the manual workflow input `core_ref` overrides it. Clear the variable after
+the compatible core revision reaches `main`. Core CI also tests this adapter
+against the exact provider revision recorded in its compatibility manifest.

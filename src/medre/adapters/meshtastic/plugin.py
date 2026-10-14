@@ -7,7 +7,9 @@ def adapter_spec() -> AdapterSpec:
     return AdapterSpec(
         transport="meshtastic",
         config=SymbolRef("medre.config.adapters.meshtastic", "MeshtasticConfig"),
-        runtime_config=SymbolRef("medre.config.model", "MeshtasticRuntimeConfig"),
+        runtime_config=SymbolRef(
+            "medre.config.adapters.meshtastic_runtime", "MeshtasticRuntimeConfig"
+        ),
         adapter=SymbolRef("medre.adapters.meshtastic.adapter", "MeshtasticAdapter"),
         fake_adapter=SymbolRef(
             "medre.adapters.fakes.meshtastic", "FakeMeshtasticAdapter"
@@ -39,6 +41,5 @@ def adapter_spec() -> AdapterSpec:
             "ble_address",
             "channel_mapping",
         ),
-        traits=frozenset({"radio"}),
         native_detection_priority=30,
     )

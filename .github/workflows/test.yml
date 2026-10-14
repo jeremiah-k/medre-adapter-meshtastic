@@ -1,0 +1,52 @@
+name: Adapter tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: MEDRE revision (defaults to MEDRE_CORE_REF variable or main)
+        type: string
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+        mode: [fake, sdk]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jeremiah-k/medre
+          ref: ${{ inputs.core_ref || vars.MEDRE_CORE_REF || 'main' }}
+          path: .core
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version-file: .core/.tool-versions
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: |
+            .core/uv.lock
+            pyproject.toml
+      - name: Install core test environment
+        run: uv sync --project .core --locked --extra dev
+      - name: Install this adapter without native SDKs
+        if: matrix.mode == 'fake'
+        run: uv pip install --python .core/.venv/bin/python --no-deps -e .
+      - name: Install this adapter and its own SDK dependencies
+        if: matrix.mode == 'sdk'
+        run: uv pip install --python .core/.venv/bin/python -e ".[test]"
+      - name: Run deterministic tests
+        if: matrix.mode == 'fake'
+        run: .core/.venv/bin/python -m pytest -q -ra
+      - name: Run native SDK contracts
+        if: matrix.mode == 'sdk'
+        run: .core/.venv/bin/python -m pytest -v -m "meshtastic_sdk and not local_integration and not soak and not live and not hardware and not docker"
