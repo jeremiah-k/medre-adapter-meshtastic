@@ -33,6 +33,26 @@ verify that the transport is discoverable. See
 [MEDRE adapter installation](https://github.com/jeremiah-k/medre/blob/main/docs/ops/adapter-installation.md)
 for mixed PyPI/Git/local installations and community adapters.
 
+## Getting started with MEDRE
+
+Follow the [MEDRE Getting Started guide](https://github.com/jeremiah-k/medre/blob/build/external-adapter-extraction/docs/ops/getting-started.md)
+for a Git-based uv deployment, a local fake smoke, concepts, and a first two-way
+route. The guide currently follows the pre-release extraction branch. Install
+core and every selected provider into the same locked deployment project;
+the provider's Git repository, import namespace, and package name are separate
+parts of ordinary Python packaging.
+
+Core owns routing, persistence, lifecycle, and delivery evidence. Each provider
+owns its platform connection and native semantics. Other independently maintained
+providers use the same discovery and event contracts; no core registration patch
+is needed. First-party siblings:
+[Matrix](https://github.com/jeremiah-k/medre-adapter-matrix),
+[Meshtastic](https://github.com/jeremiah-k/medre-adapter-meshtastic),
+[MeshCore](https://github.com/jeremiah-k/medre-adapter-meshcore), and
+[LXMF](https://github.com/jeremiah-k/medre-adapter-lxmf).
+Choose providers for the platforms in your deployment and review their own
+dependency and license requirements.
+
 ## Ownership and imports
 
 This distribution owns Meshtastic's transport implementation, configuration models,
@@ -157,3 +177,13 @@ SDK-free tier. Native schemas and validated examples live in `docs/schemas` here
 This repository declares its own Ruff/Black policy. CI checks all Python source
 and tests, plus commit whitespace, alongside the fake/native qualification tiers.
 The native adapter package includes its own `py.typed` marker.
+
+## Outbound pacing
+
+The default message_delay_seconds is 2.2 seconds, leaving a margin above
+current firmware's two-second phone-originated text limit. Shorter configured
+intervals can cause RATE_LIMIT_EXCEEDED even when the SDK returns a packet ID.
+Use a lower interval only with separately qualified firmware. A local transport
+handoff is not proof of RF reception; verify delivery on an independent node.
+The firmware rule is implemented in
+[PhoneAPI.cpp](https://github.com/meshtastic/firmware/blob/master/src/mesh/PhoneAPI.cpp).

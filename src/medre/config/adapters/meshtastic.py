@@ -144,7 +144,7 @@ class MeshtasticConfig:
     origin_label: str = ""
     default_channel: int = 0
     channel_mapping: dict[int, str] = field(default_factory=dict)
-    message_delay_seconds: float = 0.5
+    message_delay_seconds: float = 2.2
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
     radio_relay_prefix: str = "{sender_short}: "

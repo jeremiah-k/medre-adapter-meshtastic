@@ -55,7 +55,7 @@ class TestMeshtasticConfigValid:
         config = MeshtasticConfig(adapter_id="mesh-1")
         assert config.connection_type == "fake"
         assert config.default_channel == 0
-        assert config.message_delay_seconds == 0.5
+        assert config.message_delay_seconds == 2.2
         assert config.sync_timeout_ms == 30000
         assert config.channel_mapping == {}
         assert config.ble_address is None
