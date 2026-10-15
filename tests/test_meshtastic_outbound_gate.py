@@ -34,7 +34,7 @@ from medre.core.planning.delivery_plan import (
     RetryExecutor,
 )
 from medre.core.rendering.renderer import RenderingResult
-from medre.runtime.reporting import _derive_failure_kind_detail
+from medre.core.evidence.failure_taxonomy import derive_failure_kind_detail
 from medre_meshtastic_tests.helpers.delivery_callbacks import with_attempt_provenance
 
 # ---------------------------------------------------------------------------
@@ -397,40 +397,40 @@ class TestSuppressionFailureClassification:
         assert kind.is_retryable is False
 
     def test_failure_kind_detail_derives_suppressed(self) -> None:
-        detail = _derive_failure_kind_detail(
+        detail = derive_failure_kind_detail(
             failure_kind="adapter_permanent",
             error="outbound suppressed: listen_only mode",
         )
-        assert detail == "meshtastic_outbound_suppressed"
+        assert detail == "outbound_suppressed"
 
     def test_failure_kind_detail_case_insensitive(self) -> None:
-        detail = _derive_failure_kind_detail(
+        detail = derive_failure_kind_detail(
             failure_kind="adapter_permanent",
             error="Outbound Suppressed: listen_only Mode",
         )
-        assert detail == "meshtastic_outbound_suppressed"
+        assert detail == "outbound_suppressed"
 
     def test_failure_kind_detail_no_match_when_no_listen_only(self) -> None:
-        detail = _derive_failure_kind_detail(
+        detail = derive_failure_kind_detail(
             failure_kind="adapter_permanent",
             error="some other permanent error",
         )
         assert detail == "adapter_permanent"
 
     def test_failure_kind_detail_none_when_kind_none(self) -> None:
-        detail = _derive_failure_kind_detail(
+        detail = derive_failure_kind_detail(
             failure_kind=None,
             error="outbound suppressed: listen_only mode",
         )
         assert detail is None
 
     def test_existing_queue_rejected_pattern_not_affected(self) -> None:
-        """Existing meshtastic_queue_rejected pattern still works."""
-        detail = _derive_failure_kind_detail(
+        """Existing queue_rejected pattern still works."""
+        detail = derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue is full: cannot enqueue",
         )
-        assert detail == "meshtastic_queue_rejected"
+        assert detail == "queue_rejected"
 
 
 # ---------------------------------------------------------------------------

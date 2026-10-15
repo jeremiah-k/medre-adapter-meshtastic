@@ -458,7 +458,7 @@ class TestQueueRejectionTransientClassification:
         kind = RetryExecutor.classify_failure(boundary_err)
         assert kind is DeliveryFailureKind.ADAPTER_TRANSIENT
 
-    def test_meshtastic_queue_rejected_via_adapter_send_error(self) -> None:
+    def test_queue_rejected_via_adapter_send_error(self) -> None:
         """AdapterSendError(transient=True) from queue rejection classifies correctly."""
         from medre.core.contracts.adapter import AdapterSendError
 
@@ -472,34 +472,34 @@ class TestQueueLifecycleFailureKindDetail:
     """failure_kind_detail patterns for Meshtastic queue lifecycle transitions."""
 
     def test_queue_drain_cancelled_detail(self) -> None:
-        """'queue drain cancelled' derives meshtastic_queue_drain_cancelled."""
-        from medre.runtime.reporting import _derive_failure_kind_detail
+        """'queue drain cancelled' derives queue_drain_cancelled."""
+        from medre.core.evidence.failure_taxonomy import derive_failure_kind_detail
 
-        detail = _derive_failure_kind_detail(
+        detail = derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue drain cancelled during shutdown",
         )
-        assert detail == "meshtastic_queue_drain_cancelled"
+        assert detail == "queue_drain_cancelled"
 
     def test_queue_abandoned_detail(self) -> None:
-        """'queue abandoned' derives meshtastic_queue_drain_cancelled."""
-        from medre.runtime.reporting import _derive_failure_kind_detail
+        """'queue abandoned' derives queue_drain_cancelled."""
+        from medre.core.evidence.failure_taxonomy import derive_failure_kind_detail
 
-        detail = _derive_failure_kind_detail(
+        detail = derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue abandoned on crash",
         )
-        assert detail == "meshtastic_queue_drain_cancelled"
+        assert detail == "queue_drain_cancelled"
 
     def test_queue_rejected_not_confused_with_drain_cancelled(self) -> None:
-        """Queue full rejection is NOT meshtastic_queue_drain_cancelled."""
-        from medre.runtime.reporting import _derive_failure_kind_detail
+        """Queue full rejection is NOT queue_drain_cancelled."""
+        from medre.core.evidence.failure_taxonomy import derive_failure_kind_detail
 
-        detail = _derive_failure_kind_detail(
+        detail = derive_failure_kind_detail(
             failure_kind="adapter_transient",
             error="queue is full; enqueue rejected",
         )
-        assert detail == "meshtastic_queue_rejected"
+        assert detail == "queue_rejected"
 
     def test_handoff_disposition_distinguishes_deferred(self) -> None:
         """AdapterHandoffResult.disposition distinguishes deferred from transport hand-off."""
