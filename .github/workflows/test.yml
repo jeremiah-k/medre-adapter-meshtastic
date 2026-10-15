@@ -44,6 +44,12 @@ jobs:
           echo "Core baseline: ${core_sha}; adapter: ${adapter_sha}"
           echo "Core baseline: ${core_sha}; adapter: ${adapter_sha}" >> "$GITHUB_STEP_SUMMARY"
           echo "The pinned compatibility pair is qualified by MEDRE core CI." >> "$GITHUB_STEP_SUMMARY"
+      - name: Check Python quality and whitespace
+        if: matrix.mode == 'fake' && matrix.python == '3.13'
+        run: |
+          uvx --from ruff==0.16.9 ruff check src tests
+          uvx --from black==26.5.1 black --check src tests
+          git show --format= --check HEAD
       - name: Install core test environment
         run: uv sync --project .core --locked --extra dev
       - name: Install this adapter without native SDKs

@@ -1,6 +1,6 @@
 """Offline example values owned by this adapter distribution."""
 
-from medre.adapter_registry import AdapterSample
+from medre.adapter_spec import AdapterSample
 
 
 def sample_config() -> AdapterSample:

@@ -61,7 +61,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Mapping
 
-from medre.adapters._attribution_dispatch import project_source_fields
+from medre.adapters.metadata import project_source_fields
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
 from medre.core.rendering.attribution import (
     PrefixFormatterResult,
@@ -174,7 +174,7 @@ class MeshtasticRenderer:
         """Format a prefix template using adapter projection and the shared
         generic builder.
 
-        Delegates to :func:`~medre.adapters._attribution_dispatch.project_source_fields`
+        Delegates to :func:`~medre.adapters.metadata.project_source_fields`
         for source-identity projection and
         :func:`~medre.core.rendering.attribution.build_relay_attribution` for
         generic envelope assembly.

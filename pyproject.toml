@@ -4,6 +4,7 @@ version = "0.1.0"
 readme = "README.md"
 description = "meshtastic transport adapter for MEDRE"
 requires-python = ">=3.11"
+classifiers = ["Typing :: Typed"]
 license = "GPL-3.0-or-later"
 dependencies = ["medre>=0.1.0,<0.2.0", 'mtjk==2.7.11.post11', 'PyPubSub==4.0.7']
 
@@ -40,3 +41,34 @@ markers = [
   "soak: extended-duration or repeated-cycle transport endurance tests (skipped by default)",
   "hardware: tests requiring physical hardware (serial/BLE Meshtastic radios, etc.) — implies live (skipped by default)",
 ]
+
+[tool.setuptools.package-data]
+"medre.adapters.meshtastic" = ["py.typed"]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["F", "E4", "E7", "E9", "B", "ASYNC", "RUF100"]
+# RUF001-003: en-dashes in prose are intentional style.
+# SIM105: try/except-pass reads clearer than contextlib.suppress here.
+# ASYNC109: `timeout` parameter naming is the house convention.
+# ASYNC250: interactive CLI prompts block on the main thread on purpose —
+#   terminal SIGINT must interrupt input()/getpass() directly; a worker
+#   thread would survive cancellation and hold the tty.
+# ASYNC230/240: local-disk reads/writes in async CLI and evidence paths
+#   are deliberately synchronous (small files, thread-offloaded where it
+#   matters); revisit only if a path ever blocks on slow I/O.
+ignore = [
+  "RUF001",
+  "RUF002",
+  "RUF003",
+  "SIM105",
+  "ASYNC109",
+  "ASYNC230",
+  "ASYNC240",
+  "ASYNC250",
+]
+
+[tool.black]
+target-version = ["py311"]

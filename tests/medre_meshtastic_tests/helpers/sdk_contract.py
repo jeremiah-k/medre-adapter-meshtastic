@@ -1,96 +1,27 @@
-"""Helpers for installed optional-SDK contract tests.
+"""Provider-owned test policy using shared installed-metadata qualification."""
 
-Each installed adapter distribution is the authority for its SDK versions.
-SDK contract tests verify that CI installed those declared pins without copying
-version literals into a second place that Renovate must update by hand.
-"""
-
-from __future__ import annotations
-
-import re
 import tomllib
-from dataclasses import dataclass
-from importlib import metadata
 from pathlib import Path
 from typing import Iterable
 
-from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name
+from medre.testing.sdk_contract import assert_installed_sdk_pins, declared_sdk_pins
 
 
-@dataclass(frozen=True)
-class DeclaredSdkPin:
-    """One exact SDK pin declared by its adapter distribution."""
-
-    distribution: str
-    version: str
-
-
-def _canonical_distribution_name(name: str) -> str:
-    """Normalize a distribution name using the PEP 503 comparison form."""
-    return re.sub(r"[-_.]+", "-", name).lower()
+def _distribution() -> str:
+    return tomllib.loads(
+        (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )["project"]["name"]
 
 
-def declared_extra_pins(
-    extra: str, *, sdk_extra: str = ""
-) -> dict[str, DeclaredSdkPin]:
-    """Read authoritative SDK pins from the installed adapter's metadata.
-
-    Source provenance (PyPI, Git, or local checkout) is intentionally irrelevant.
-    MEDRE core does not declare transport SDK dependencies.
-    """
-    project = tomllib.loads(
-        (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text()
-    )["project"]
-    dist = metadata.distribution(project["name"])
-    selected_extra = sdk_extra
-    pins: dict[str, DeclaredSdkPin] = {}
-    for raw in dist.requires or ():
-        requirement = Requirement(raw)
-        if requirement.marker is not None and not requirement.marker.evaluate(
-            {"extra": selected_extra}
-        ):
-            continue
-        canonical = canonicalize_name(requirement.name)
-        if canonical == "medre":
-            continue
-        specifiers = list(requirement.specifier)
-        if (
-            requirement.url
-            or len(specifiers) != 1
-            or specifiers[0].operator != "=="
-            or "*" in specifiers[0].version
-        ):
-            raise AssertionError(f"{extra} SDK dependency is not exact-pinned: {raw}")
-        pin = DeclaredSdkPin(requirement.name, specifiers[0].version)
-        if canonical in pins and pins[canonical] != pin:
-            raise AssertionError(f"conflicting SDK requirement: {canonical}")
-        pins[canonical] = pin
-    if not pins:
-        raise AssertionError(f"{dist.metadata['Name']} declares no {extra} SDK pins")
-    return pins
+def declared_extra_pins(extra: str, *, sdk_extra: str = ""):
+    return declared_sdk_pins(_distribution(), extras=(sdk_extra,) if sdk_extra else ())
 
 
 def assert_installed_extra_matches_declared_pins(
-    extra: str,
-    distributions: Iterable[str],
-    *,
-    sdk_extra: str = "",
+    extra: str, distributions: Iterable[str], *, sdk_extra: str = ""
 ) -> None:
-    """Assert installed SDK distributions match their adapter's exact pins."""
-    pins = declared_extra_pins(extra, sdk_extra=sdk_extra)
-    requested = {_canonical_distribution_name(name) for name in distributions}
-    missing = requested - pins.keys()
-    if missing:
-        raise AssertionError(
-            f"{extra} SDK contract distributions are not declared by the adapter: "
-            f"{sorted(missing)}"
-        )
-
-    for key in sorted(requested):
-        pin = pins[key]
-        installed = metadata.version(pin.distribution)
-        assert installed == pin.version, (
-            f"installed {pin.distribution} {installed} does not match "
-            f"adapter {extra} pin {pin.version}"
-        )
+    assert_installed_sdk_pins(
+        _distribution(), distributions, extras=(sdk_extra,) if sdk_extra else ()
+    )

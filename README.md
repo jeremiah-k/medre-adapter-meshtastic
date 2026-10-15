@@ -143,3 +143,17 @@ configured core baseline. MEDRE core CI qualifies the pinned compatibility
 pair; a standalone green result does not qualify another core revision.
 SDK qualification extras come from the selected core compatibility manifest,
 while SDK versions remain authoritative in this adapter's package metadata.
+
+## Provider contract and quality
+
+The [registration reference](https://github.com/jeremiah-k/medre/blob/main/docs/dev/adapter-registration.md)
+documents every hook, its loading phase, and the minimal fake constructor/event
+calls. Shared native-metadata helpers are public under `medre.adapters.metadata`.
+Conformance tests use `medre.testing`; SDK pin checks read this distribution's
+installed metadata while this repository chooses its SDK qualification extras.
+The fake constructor and explicit-keyword event factory are checked in the
+SDK-free tier. Native schemas and validated examples live in `docs/schemas` here.
+
+This repository declares its own Ruff/Black policy. CI checks all Python source
+and tests, plus commit whitespace, alongside the fake/native qualification tiers.
+The native adapter package includes its own `py.typed` marker.

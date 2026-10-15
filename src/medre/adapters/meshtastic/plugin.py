@@ -1,6 +1,6 @@
 """Declarative registration for the separately distributed adapter."""
 
-from medre.adapter_registry import AdapterSpec, SymbolRef
+from medre.adapter_spec import AdapterSpec, SymbolRef
 
 
 def adapter_spec() -> AdapterSpec:
