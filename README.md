@@ -35,9 +35,9 @@ for mixed PyPI/Git/local installations and community adapters.
 
 ## Getting started with MEDRE
 
-Follow the [MEDRE Getting Started guide](https://github.com/jeremiah-k/medre/blob/build/external-adapter-extraction/docs/ops/getting-started.md)
+Follow the [MEDRE Getting Started guide](https://github.com/jeremiah-k/medre/blob/main/docs/ops/getting-started.md)
 for a Git-based uv deployment, a local fake smoke, concepts, and a first two-way
-route. The guide currently follows the pre-release extraction branch. Install
+route. The guide follows the external-adapter distribution model. Install
 core and every selected provider into the same locked deployment project;
 the provider's Git repository, import namespace, and package name are separate
 parts of ordinary Python packaging.
@@ -73,10 +73,9 @@ interface range and native SDK pins are declared in this project's
 Community adapter authors can use their own distribution names, import packages,
 and hosting sources with the same `medre.adapters` entry-point contract.
 
-License: GPL-3.0-or-later for the original MEDRE-authored adapter files.
-Upstream SDK licenses remain separate and must be reviewed for redistribution.
-The LXMF/RNS integration in particular does **not** gain license insulation
-merely by being moved to another repository.
+MEDRE-authored adapter source is [MIT-licensed](LICENSE). This grant does
+not relicense installed dependencies. Their license terms still apply to any
+combined deployment or redistribution. See [dependency license notes](DEPENDENCY_LICENSES.md).
 
 ## Offline samples and diagnostics
 

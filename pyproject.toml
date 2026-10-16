@@ -5,7 +5,7 @@ readme = "README.md"
 description = "meshtastic transport adapter for MEDRE"
 requires-python = ">=3.11"
 classifiers = ["Typing :: Typed"]
-license = "GPL-3.0-or-later"
+license = "MIT"
 dependencies = ["medre>=0.1.0,<0.2.0", 'mtjk==2.7.11.post11', 'PyPubSub==4.0.7']
 
 [project.entry-points."medre.adapters"]
