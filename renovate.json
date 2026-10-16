@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "packageRules": [
+    {
+      "description": "medre core is consumed from the Git deployment project or the CI checkout, not PyPI; suppress the pypi lookup for it",
+      "matchDatasources": ["pypi"],
+      "matchPackageNames": ["medre"],
+      "enabled": false
+    }
+  ]
+}
