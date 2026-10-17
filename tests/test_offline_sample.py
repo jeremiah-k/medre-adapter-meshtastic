@@ -20,6 +20,8 @@ async def test_sample_routes_between_distinct_offline_instances(tmp_path, monkey
     assert report["status"] == "passed", report.get(
         "fail_reason", report.get("fail_reasons")
     )
-    assert report["source_adapter"] == "sample_1"
-    assert report["target_adapters"] == ["sample_2"]
+    # Core assigns self-describing instance IDs using each provider's transport.
+    transport = adapter_spec().transport
+    assert report["source_adapter"] == f"{transport}_1"
+    assert report["target_adapters"] == [f"{transport}_2"]
     assert report["shutdown_status"] == "stopped"
