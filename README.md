@@ -8,7 +8,24 @@ Git author and committer identity metadata. The import path stays
 `medre.adapters.meshtastic`; the distribution registers an entry point in
 `medre.adapters`, so MEDRE can discover it without a built-in adapter list.
 
-Installation sources (MEDRE and this adapter must share one Python environment):
+MEDRE's default adapter source catalog names this repository, so a persistent
+uv tool installation can add it by alias:
+
+```bash
+uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
+medre adapters install meshtastic
+medre adapters
+```
+
+The alias resolves to this repository's main branch. To pin a reviewed commit
+or switch to an index or local source, print the catalog with
+`medre adapters sources`, copy it to the override file it names, and edit the
+requirement; `medre adapters remove meshtastic` drops it; `medre update` updates
+the tool within its recorded sources. Only these explicit commands run uv;
+MEDRE installs nothing while loading a configuration or starting the runtime.
+
+Deployment projects and plain pip remain supported (MEDRE and this adapter
+must share one Python environment):
 
 ```bash
 # Package index, if/when this distribution is published:
@@ -22,23 +39,25 @@ python -m pip install -e ../medre-adapter-meshtastic
 ```
 
 Git installation uses standard Python direct URL requirements, not a custom
-MEDRE downloader. To install before MEDRE itself is published, include MEDRE's
-Git URL as a dependency source in the same deployment environment. For uv,
-use `tool.uv.sources` with an exact Git `rev` or local `path`; commit the
-resulting `uv.lock` for reproducibility. Installing an adapter does not require
-publishing it on PyPI. Runtime startup never installs or updates dependencies.
+MEDRE downloader. For uv, use `tool.uv.sources` with an exact Git `rev` or
+local `path`; commit the resulting `uv.lock` for reproducibility. Installing
+an adapter does not require publishing it on PyPI. Runtime startup never
+installs or updates dependencies.
 
 After installation/restart, use `medre adapters check --config bridge.yaml` to
 verify that the transport is discoverable. See
 [MEDRE adapter installation](https://github.com/jeremiah-k/medre/blob/main/docs/ops/adapter-installation.md)
-for mixed PyPI/Git/local installations and community adapters.
+for mixed PyPI/Git/local installations and community adapters, and
+[package management](https://github.com/jeremiah-k/medre/blob/main/docs/ops/package-management.md)
+for the source catalog, extras, and updates.
 
 ## Getting started with MEDRE
 
 Follow the [MEDRE Getting Started guide](https://github.com/jeremiah-k/medre/blob/main/docs/ops/getting-started.md)
 for a Git-based uv deployment, a local fake smoke, concepts, and a first two-way
-route. The guide follows the external-adapter distribution model. Install
-core and every selected provider into the same locked deployment project;
+route. The guide follows the external-adapter distribution model. Keep
+core and every selected provider in one environment, either a persistent
+uv tool managed with `medre adapters install` or a locked deployment project;
 the provider's Git repository, import namespace, and package name are separate
 parts of ordinary Python packaging.
 
