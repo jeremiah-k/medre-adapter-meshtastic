@@ -1,0 +1,7 @@
+# Trunk's taplo runs with this config (taplo discovers it at the repo root).
+# The defaults would reflow pyproject: the 80-column width would expand
+# dependency arrays kept on one line, and array auto-collapse would merge
+# multi-line arrays that fit the wider width. Pin both behaviors off.
+[formatting]
+column_width = 120
+array_auto_collapse = false

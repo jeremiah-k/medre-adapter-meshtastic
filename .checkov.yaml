@@ -1,0 +1,6 @@
+# checkov config for the Trunk pipeline.
+# CKV_GHA_7 flags non-empty workflow_dispatch inputs; the core_ref input on
+# the adapter workflow is the deliberate mechanism for pinning the MEDRE
+# core revision under test.
+skip-check:
+  - CKV_GHA_7
