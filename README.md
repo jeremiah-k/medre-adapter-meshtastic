@@ -1,15 +1,13 @@
 # medre-adapter-meshtastic
 
-Independent Meshtastic adapter for MEDRE, extracted from MEDRE commit
-`e59c29dd31a95860d1cdbc19e531896616627a68`.
+**Meshtastic provider for MEDRE.** This separately installed distribution owns its
+transport SDK, configuration, native codec and offline fake. MEDRE core owns
+routing, storage, lifecycle and delivery evidence.
 
-This repository retains the original adapter source history, with original
-Git author and committer identity metadata. The import path stays
-`medre.adapters.meshtastic`; the distribution registers an entry point in
-`medre.adapters`, so MEDRE can discover it without a built-in adapter list.
+## Install from Git
 
-MEDRE's default adapter source catalog names this repository, so a persistent
-uv tool installation can add it by alias:
+Use [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git. For
+a first trial, MEDRE can manage this provider in its persistent tool environment:
 
 ```bash
 uv tool install 'git+https://github.com/jeremiah-k/medre.git@main'
@@ -17,60 +15,23 @@ medre adapters install meshtastic
 medre adapters
 ```
 
-The alias resolves to this repository's main branch. To pin a reviewed commit
-or switch to an index or local source, print the catalog with
-`medre adapters sources`, copy it to the override file it names, and edit the
-requirement; `medre adapters remove meshtastic` drops it; `medre update` updates
-the tool within its recorded sources. Only these explicit commands run uv;
-MEDRE installs nothing while loading a configuration or starting the runtime.
+On Windows, the package-changing command prints a uv command to run **after**
+`medre.exe` exits, rather than replacing an executable still in use.
+The `main` branch is useful for trials; pin exact core and adapter commits for
+repeatable operation. Use the [MEDRE Getting Started guide](https://github.com/jeremiah-k/medre/blob/main/docs/ops/getting-started.md)
+for fake smoke, guided route creation and native setup. Use the
+[adapter-source guide](https://github.com/jeremiah-k/medre/blob/main/docs/ops/adapter-installation.md)
+for a locked uv deployment project, private Git, local checkouts, index sources,
+and the same-environment requirement. Neither MEDRE nor the provider installs
+packages during runtime startup.
 
-Deployment projects and plain pip remain supported (MEDRE and this adapter
-must share one Python environment):
+## Packaging and provenance
 
-```bash
-# Package index, if/when this distribution is published:
-python -m pip install 'medre-adapter-meshtastic'
-
-# Git source; replace FULL_COMMIT_SHA with a reviewed 40-character commit ID:
-python -m pip install 'medre-adapter-meshtastic @ git+https://github.com/jeremiah-k/medre-adapter-meshtastic.git@FULL_COMMIT_SHA'
-
-# Local development checkout:
-python -m pip install -e ../medre-adapter-meshtastic
-```
-
-Git installation uses standard Python direct URL requirements, not a custom
-MEDRE downloader. For uv, use `tool.uv.sources` with an exact Git `rev` or
-local `path`; commit the resulting `uv.lock` for reproducibility. Installing
-an adapter does not require publishing it on PyPI. Runtime startup never
-installs or updates dependencies.
-
-After installation/restart, use `medre adapters check --config bridge.yaml` to
-verify that the transport is discoverable. See
-[MEDRE adapter installation](https://github.com/jeremiah-k/medre/blob/main/docs/ops/adapter-installation.md)
-for mixed PyPI/Git/local installations and community adapters, and
-[package management](https://github.com/jeremiah-k/medre/blob/main/docs/ops/package-management.md)
-for the source catalog, extras, and updates.
-
-## Getting started with MEDRE
-
-Follow the [MEDRE Getting Started guide](https://github.com/jeremiah-k/medre/blob/main/docs/ops/getting-started.md)
-for a Git-based uv deployment, a local fake smoke, concepts, and a first two-way
-route. The guide follows the external-adapter distribution model. Keep
-core and every selected provider in one environment, either a persistent
-uv tool managed with `medre adapters install` or a locked deployment project;
-the provider's Git repository, import namespace, and package name are separate
-parts of ordinary Python packaging.
-
-Core owns routing, persistence, lifecycle, and delivery evidence. Each provider
-owns its platform connection and native semantics. Other independently maintained
-providers use the same discovery and event contracts; no core registration patch
-is needed. First-party siblings:
-[Matrix](https://github.com/jeremiah-k/medre-adapter-matrix),
-[Meshtastic](https://github.com/jeremiah-k/medre-adapter-meshtastic),
-[MeshCore](https://github.com/jeremiah-k/medre-adapter-meshcore), and
-[LXMF](https://github.com/jeremiah-k/medre-adapter-lxmf).
-Choose providers for the platforms in your deployment and review their own
-dependency and license requirements.
+This distribution registers the `medre.adapters` entry point and retains the
+import namespace `medre.adapters.meshtastic`. Its original adapter source history
+was extracted from MEDRE commit `e59c29dd31a95860d1cdbc19e531896616627a68`;
+Git author and committer identities remain preserved. Runtime configuration and
+adapter discovery do not depend on this repository's distribution name.
 
 ## Ownership and imports
 
