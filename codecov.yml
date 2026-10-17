@@ -1,0 +1,64 @@
+# Coverage targets mirror the MEDRE core codecov style. They stay inert
+# until CI uploads a coverage report; adapter CI does not upload yet.
+coverage:
+  status:
+    project:
+      default:
+        target: 40%
+        threshold: 2%
+    patch:
+      default:
+        target: 40%
+        threshold: 2%
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 3%
+      - type: patch
+        target: 40%
+        threshold: 5%
+
+  individual_components:
+    - component_id: adapter_meshtastic
+      name: Meshtastic Adapter
+      paths:
+        - src/medre/adapters/meshtastic/**
+      statuses:
+        - type: project
+          target: 50%
+          threshold: 5%
+        - type: patch
+          target: 45%
+          threshold: 8%
+
+    - component_id: adapter_config
+      name: Meshtastic Configuration
+      paths:
+        - src/medre/config/adapters/**
+      statuses:
+        - type: project
+          target: 55%
+          threshold: 5%
+        - type: patch
+          target: 50%
+          threshold: 7%
+
+    - component_id: fake_adapter
+      name: Fake Meshtastic Adapter
+      paths:
+        - src/medre/adapters/fakes/**
+      statuses:
+        - type: project
+          target: 55%
+          threshold: 5%
+        - type: patch
+          target: 50%
+          threshold: 7%
+
+comment:
+  layout: header, diff, flags, components
+  behavior: default
+  require_changes: false
