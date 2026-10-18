@@ -1,10 +1,44 @@
 """Declarative registration for the separately distributed adapter."""
 
+from medre import adapter_spec as registration
 from medre.adapter_spec import AdapterSpec, SymbolRef
 
 
 def adapter_spec() -> AdapterSpec:
+    # Prompt metadata is optional; discovery works with released core versions
+    # that do not expose the authoring form contract.
+    native_setup = {}
+    NativeSetupField = getattr(registration, "NativeSetupField", None)
+    if NativeSetupField is not None:
+        native_setup["native_setup_fields"] = (
+            NativeSetupField(
+                "connection_type",
+                "Radio connection type",
+                choices=("tcp", "serial", "ble"),
+            ),
+            NativeSetupField(
+                "host", "TCP hostname", active_when=("connection_type", "tcp")
+            ),
+            NativeSetupField(
+                "port",
+                "TCP port (blank uses the protocol default)",
+                required=False,
+                active_when=("connection_type", "tcp"),
+                numeric=True,
+            ),
+            NativeSetupField(
+                "serial_port",
+                "Serial device",
+                active_when=("connection_type", "serial"),
+            ),
+            NativeSetupField(
+                "ble_address",
+                "BLE device address",
+                active_when=("connection_type", "ble"),
+            ),
+        )
     return AdapterSpec(
+        **native_setup,
         sample_config=SymbolRef("medre.adapters.meshtastic.sample", "sample_config"),
         transport="meshtastic",
         config=SymbolRef("medre.config.adapters.meshtastic", "MeshtasticConfig"),
