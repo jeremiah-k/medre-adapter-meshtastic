@@ -59,6 +59,7 @@ Native Meshtastic-originated reactions continue to use ``emoji=1`` +
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Mapping
 
 from medre.adapters.metadata import project_source_fields
@@ -166,7 +167,7 @@ class MeshtasticRenderer:
     def _format_prefix_for(
         self,
         event: CanonicalEvent,
-        radio_relay_prefix: str,
+        radio_relay_prefix: str | None,
         *,
         compact: bool = False,
         source_origin_label: str | None = None,
@@ -218,7 +219,7 @@ class MeshtasticRenderer:
             Frozen result with rendered prefix string and diagnostic
             metadata.
         """
-        if not radio_relay_prefix:
+        if radio_relay_prefix == "":
             return PrefixFormatterResult(
                 rendered_prefix="",
                 template_used=radio_relay_prefix,
@@ -266,6 +267,31 @@ class MeshtasticRenderer:
             projected_fields=projected,
         )
 
+        if radio_relay_prefix is None:
+            sender = (
+                attr.source_sender_label
+                or attr.source_sender_short_label
+                or attr.source_sender_id
+                or event.source_transport_id
+                or event.source_adapter
+            )
+            if not sender.isprintable():
+                sender = (
+                    attr.source_sender_id
+                    or event.source_transport_id
+                    or event.source_adapter
+                )
+            if attr.source_platform == "matrix":
+                # MMRelay's default display5 is five Unicode code points;
+                # the final UTF-8 wire budget is enforced after composition.
+                attr = replace(attr, source_sender_label=sender[:5])
+                radio_relay_prefix = "{sender}[M]: "
+            else:
+                attr = replace(
+                    attr,
+                    source_sender_short_label=attr.source_sender_short_label or sender,
+                )
+                radio_relay_prefix = "{sender_short}: "
         return format_relay_prefix(radio_relay_prefix, attr)
 
     # ------------------------------------------------------------------
@@ -486,7 +512,7 @@ class MeshtasticRenderer:
         # Prepend relay prefix when configured
         # (skip for native emoji-only reactions; descriptive reactions
         # already include their compact prefix in the text).
-        if is_structured_reaction and prefix:
+        if is_structured_reaction and prefix != "":
             # Native tapback: do NOT prepend prefix to text, but still
             # populate relay-prefix metadata so downstream consumers can
             # see the resolved prefix.
@@ -527,7 +553,7 @@ class MeshtasticRenderer:
             "truncated": was_truncated,
         }
         formatted_prefix = prefix_result.rendered_prefix
-        if prefix:
+        if prefix != "":
             # Normalized keys (consistent across all renderers)
             metadata["relay_prefix_template"] = prefix_result.template_used
             metadata["relay_prefix_rendered"] = formatted_prefix
@@ -558,7 +584,7 @@ class MeshtasticRenderer:
         self,
         event: CanonicalEvent,
         rel: EventRelation,
-        prefix: str,
+        prefix: str | None,
         target_adapter: str,
         source_origin_label: str | None = None,
     ) -> tuple[str, PrefixFormatterResult | None]:
