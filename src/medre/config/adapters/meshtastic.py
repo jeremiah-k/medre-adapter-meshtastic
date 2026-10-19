@@ -60,7 +60,9 @@ class MeshtasticConfig:
         with generic variables: ``{sender}``, ``{sender_short}``,
         ``{sender_id}``, ``{origin_label}``, ``{platform}``,
         ``{channel}``, ``{route_id}``.
-        Default: ``"{sender_short}: "``.
+        Default: ``None`` selects automatic attribution. Matrix sources use the
+        first five display-name characters followed by ``[M]: ``; other
+        sources use ``{sender_short}: ``. An explicit empty string disables it.
 
         Example: ``"{sender_short}: "``
     mmrelay_compatibility:
@@ -147,7 +149,7 @@ class MeshtasticConfig:
     message_delay_seconds: float = 2.2
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
-    radio_relay_prefix: str = "{sender_short}: "
+    radio_relay_prefix: str | None = None
     mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3
@@ -335,7 +337,9 @@ class MeshtasticConfig:
         # --- radio_relay_prefix ---
         if isinstance(self.radio_relay_prefix, bool):
             raise MeshtasticConfigError("radio_relay_prefix must be a str, got bool")
-        if not isinstance(self.radio_relay_prefix, str):
+        if self.radio_relay_prefix is not None and not isinstance(
+            self.radio_relay_prefix, str
+        ):
             raise MeshtasticConfigError(
                 f"radio_relay_prefix must be a str, "
                 f"got {type(self.radio_relay_prefix).__name__}"

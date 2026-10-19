@@ -174,3 +174,11 @@ Use a lower interval only with separately qualified firmware. A local transport
 handoff is not proof of RF reception; verify delivery on an independent node.
 The firmware rule is implemented in
 [PhoneAPI.cpp](https://github.com/meshtastic/firmware/blob/master/src/mesh/PhoneAPI.cpp).
+
+## Default relay attribution
+
+Matrix messages sent to Meshtastic default to `Alice[M]: message`, using the
+first five display-name characters. The prefix shares the 227-byte UTF-8 budget
+with the body. Other source platforms retain generic short-name attribution.
+Set `radio_relay_prefix: ""` to disable it or supply a custom generic template;
+omitted/null selects the source-aware default.
