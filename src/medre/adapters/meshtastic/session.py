@@ -181,8 +181,8 @@ class MeshtasticSession:
         self._reconnecting: bool = False
         self._reconnect_attempts: int = 0
         self._reconnect_total_attempts: int = 0
-        self._reconnect_task: asyncio.Task | None = None
-        self._liveness_task: asyncio.Task | None = None
+        self._reconnect_task: asyncio.Task[Any] | None = None
+        self._liveness_task: asyncio.Task[Any] | None = None
         # Diagnostics
         self._last_packet_time: float | None = None
         self._node_id: str | None = None
@@ -531,7 +531,7 @@ class MeshtasticSession:
                         text,
                         channelIndex=channel_index,
                     )
-                return result
+                return cast(dict[str, Any], result)
             except asyncio.CancelledError:
                 raise
             except MeshtasticSendError as exc:

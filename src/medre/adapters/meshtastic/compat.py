@@ -12,8 +12,6 @@ when the dependency is absent.
 
 from __future__ import annotations
 
-import typing as _t
-
 HAS_MESHTASTIC: bool
 _PORTNUM_ENUM: type | None = None
 
@@ -46,7 +44,7 @@ def get_portnum_table() -> dict[int, str] | None:
     if _PORTNUM_ENUM is None:
         return None
 
-    enum = _t.cast(type, _PORTNUM_ENUM)
+    enum = _PORTNUM_ENUM
     desc = getattr(enum, "DESCRIPTOR", None)
     if desc is None:
         return None

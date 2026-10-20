@@ -1,5 +1,7 @@
 """Declarative registration for the separately distributed adapter."""
 
+from typing import Any
+
 from medre import adapter_spec as registration
 from medre.adapter_spec import AdapterSpec, SymbolRef
 
@@ -7,7 +9,7 @@ from medre.adapter_spec import AdapterSpec, SymbolRef
 def adapter_spec() -> AdapterSpec:
     # Prompt metadata is optional; discovery works with released core versions
     # that do not expose the authoring form contract.
-    native_setup = {}
+    native_setup: dict[str, Any] = {}
     NativeSetupField = getattr(registration, "NativeSetupField", None)
     if NativeSetupField is not None:
         native_setup["native_setup_fields"] = (
