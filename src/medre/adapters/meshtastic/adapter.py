@@ -183,10 +183,10 @@ class MeshtasticAdapter(AdapterContract):
         )
         self.ctx: AdapterContext | None = None
         self._started: bool = False
-        self._background_tasks: set[asyncio.Task] = set()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
         self._inbound_futures: set[concurrent.futures.Future[object]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._drain_task: asyncio.Task | None = None
+        self._drain_task: asyncio.Task[Any] | None = None
 
         # Classifier counters — inbound evidence
         self._classifier_packets_seen: int = 0
@@ -957,7 +957,7 @@ class MeshtasticAdapter(AdapterContract):
 
     def _observe_callback_task(
         self,
-        task: asyncio.Task,
+        task: asyncio.Task[Any],
         label: str,
         event_id: str = "",
     ) -> None:
@@ -982,7 +982,7 @@ class MeshtasticAdapter(AdapterContract):
         """
         adapter_id = self.adapter_id
 
-        def _on_done(t: asyncio.Task) -> None:
+        def _on_done(t: asyncio.Task[Any]) -> None:
             self._background_tasks.discard(t)
             if t.cancelled():
                 return
@@ -1001,7 +1001,7 @@ class MeshtasticAdapter(AdapterContract):
         self._background_tasks.add(task)
         task.add_done_callback(_on_done)
 
-    def _observe_detached_task(self, task: asyncio.Task) -> None:
+    def _observe_detached_task(self, task: asyncio.Task[Any]) -> None:
         """Done callback for tasks detached after shutdown timeout.
 
         When a critical callback suppresses CancelledError and remains
