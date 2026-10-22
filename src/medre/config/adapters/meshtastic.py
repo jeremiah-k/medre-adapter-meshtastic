@@ -53,7 +53,10 @@ class MeshtasticConfig:
     startup_backlog_suppress_seconds:
         Seconds after start to suppress stale backlog packets.
     sync_timeout_ms:
-        Timeout in milliseconds for sync operations.
+        Initial connection wait budget in milliseconds. Default: 30000. The
+        same value bounds SDK connection/configuration phases. Expiry leaves
+        the started adapter degraded while its owned attempt and lifetime
+        recovery continue in the background.
     radio_relay_prefix:
         Template string prepended to messages relayed **from** Matrix
         **to** Meshtastic radio.  Uses Python ``str.format()`` syntax
@@ -334,6 +337,8 @@ class MeshtasticConfig:
                 f"origin_label must be a str, "
                 f"got {type(self.origin_label).__name__}"
             )
+        if type(self.sync_timeout_ms) is not int or self.sync_timeout_ms <= 0:
+            raise MeshtasticConfigError("sync_timeout_ms must be a positive integer")
         # --- radio_relay_prefix ---
         if isinstance(self.radio_relay_prefix, bool):
             raise MeshtasticConfigError("radio_relay_prefix must be a str, got bool")

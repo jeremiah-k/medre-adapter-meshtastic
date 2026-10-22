@@ -220,6 +220,8 @@ class MeshtasticAdapter(AdapterContract):
         """Connect to the Meshtastic node and begin receiving packets.
 
         Idempotent: calling start on an already-started adapter is a no-op.
+        An unavailable node leaves the started adapter degraded while the
+        session retains connection recovery in the background.
 
         Parameters
         ----------
@@ -269,7 +271,7 @@ class MeshtasticAdapter(AdapterContract):
             self._start_time = None
             raise
 
-        # Session-scoped startup backlog baseline — set AFTER session connects
+        # Session-scoped backlog baseline — set after the bounded startup wait.
         self._adapter_start_epoch = time.time()
         self._startup_backlog_packets_seen = 0
         self._startup_backlog_packets_suppressed = 0

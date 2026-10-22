@@ -138,6 +138,7 @@ class MeshtasticSession:
         "_reconnect_attempts",
         "_reconnect_total_attempts",
         "_reconnect_task",
+        "_startup_connect_task",
         "_liveness_task",
         # Diagnostics
         "_last_packet_time",
@@ -182,6 +183,7 @@ class MeshtasticSession:
         self._reconnect_attempts: int = 0
         self._reconnect_total_attempts: int = 0
         self._reconnect_task: asyncio.Task[Any] | None = None
+        self._startup_connect_task: asyncio.Task[Any] | None = None
         self._liveness_task: asyncio.Task[Any] | None = None
         # Diagnostics
         self._last_packet_time: float | None = None
@@ -348,7 +350,11 @@ class MeshtasticSession:
         self,
         message_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
-        """Create the Meshtastic client and begin receiving packets.
+        """Wait within the startup budget, then retain degraded recovery ownership.
+
+        Native construction runs off-loop. Expiry retains the same attempt;
+        ordinary connection refusals enter capped lifetime retries. Configuration
+        and callback setup errors remain startup failures.
 
         Parameters
         ----------
@@ -359,7 +365,7 @@ class MeshtasticSession:
         ------
         MeshtasticConnectionError
             If ``mtjk`` is not installed and connection_type is not ``"fake"``,
-            or if the connection fails.
+            before a native connection attempt can be made.
         """
         if self._started:
             self._logger.warning(
@@ -367,6 +373,8 @@ class MeshtasticSession:
             )
             return
 
+        if self._startup_connect_task is not None:
+            raise RuntimeError("Meshtastic connection setup is already in progress")
         self._stop_requested = False
         self._reconnect_attempts = 0
         self._reconnect_total_attempts = 0
@@ -393,22 +401,72 @@ class MeshtasticSession:
                 raise MeshtasticConnectionError(
                     "mtjk not installed; pip install 'medre-adapter-meshtastic'"
                 )
-            client = self._create_client()
-            self._activate_client(client)
-
+            # Validation failures are operator errors, not offline transports.
+            self._config.validate()
+            pending = asyncio.create_task(
+                self._create_client_offloop(),
+                name=f"meshtastic-start:{self._adapter_id}",
+            )
+            self._startup_connect_task = pending
             try:
-                self._subscribe_callbacks()
-                self._refresh_node_id()
-            except Exception:
-                self._subscribed = False
-                try:
-                    close_fn = getattr(self._client, "close", None)
-                    if close_fn is not None:
-                        close_fn()
-                except Exception:
-                    pass
-                self._invalidate_client()
+                async with asyncio.timeout(self._config.sync_timeout_ms / 1000):
+                    # wait() retains ownership without cancelling the attempt.
+                    # Python 3.14 shield() logs late failures independently of
+                    # the recovery supervisor that retrieves them.
+                    await asyncio.wait((pending,))
+                    client = pending.result()
+                self._startup_connect_task = None
+            except asyncio.CancelledError:
+                await self._cancel_startup_attempt(pending)
                 raise
+            except TimeoutError:
+                self._last_error = (
+                    "Initial connection did not complete within startup budget"
+                )
+                self._logger.warning(
+                    "MeshtasticSession %s initial connection exceeded %.1fs; "
+                    "continuing degraded with recovery active",
+                    self._adapter_id,
+                    self._config.sync_timeout_ms / 1000,
+                )
+                # Retain this attempt. Starting another constructor here would
+                # compete for the same radio while the SDK call is still live.
+                self._reconnecting = True
+                self._reconnect_task = asyncio.create_task(
+                    self._reconnect_loop(pending),
+                    name=f"meshtastic-reconnect:{self._adapter_id}",
+                )
+                client = None
+            except MeshtasticConnectionError as exc:
+                self._startup_connect_task = None
+                self._last_error = str(exc)
+                self._logger.warning(
+                    "MeshtasticSession %s initial connection unavailable; "
+                    "continuing degraded with recovery active: %s",
+                    self._adapter_id,
+                    exc,
+                )
+                self._start_reconnect_task()
+                client = None
+            except BaseException:
+                self._startup_connect_task = None
+                raise
+
+            if client is not None:
+                self._activate_client(client)
+                try:
+                    self._subscribe_callbacks()
+                    self._refresh_node_id()
+                except Exception:
+                    self._subscribed = False
+                    try:
+                        close_fn = getattr(self._client, "close", None)
+                        if close_fn is not None:
+                            close_fn()
+                    except Exception:
+                        pass
+                    self._invalidate_client()
+                    raise
 
         self._started = True
         if self._tcp_liveness_enabled:
@@ -430,8 +488,9 @@ class MeshtasticSession:
         timeout:
             Maximum seconds to wait for a clean shutdown.
         """
-        if not self._started:
+        if not self._started and self._startup_connect_task is None:
             return
+        pending_start = self._startup_connect_task
 
         # Signal stop to prevent reconnect loops
         self._stop_requested = True
@@ -459,6 +518,12 @@ class MeshtasticSession:
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
             self._reconnect_task = None
+
+        # A supervisor cancelled before its first step never awaits its
+        # pending constructor. Retain independent ownership so this path still
+        # installs the late-result disposer and consumes any eventual failure.
+        if pending_start is not None:
+            await self._cancel_startup_attempt(pending_start)
 
         self._unsubscribe_callbacks()
 
@@ -784,6 +849,8 @@ class MeshtasticSession:
                 from meshtastic.tcp_interface import TCPInterface
 
                 return TCPInterface(
+                    timeout=self._config.sync_timeout_ms / 1000,
+                    connectTimeout=min(10.0, self._config.sync_timeout_ms / 1000),
                     hostname=self._config.host,
                     portNumber=(
                         self._config.port if self._config.port is not None else 4403
@@ -797,7 +864,10 @@ class MeshtasticSession:
 
                 from meshtastic.serial_interface import SerialInterface
 
-                return SerialInterface(devPath=self._config.serial_port)
+                return SerialInterface(
+                    devPath=self._config.serial_port,
+                    timeout=self._config.sync_timeout_ms / 1000,
+                )
             elif conn == "ble":
                 if self._config.ble_address is None:
                     raise RuntimeError(
@@ -808,12 +878,17 @@ class MeshtasticSession:
                     BLEInterface,  # no py.typed / pyi stubs
                 )
 
-                return BLEInterface(address=self._config.ble_address)
+                return BLEInterface(
+                    address=self._config.ble_address,
+                    timeout=self._config.sync_timeout_ms / 1000,
+                )
             else:
                 raise MeshtasticConnectionError(
                     f"Unsupported connection_type: {conn!r}"
                 )
-        except MeshtasticConnectionError:
+        except (MeshtasticConnectionError, ImportError):
+            # Missing transport modules need an installation fix; retrying them
+            # as an offline radio would leave a permanently degraded instance.
             raise
         except Exception as exc:
             raise MeshtasticConnectionError(
@@ -1186,6 +1261,36 @@ class MeshtasticSession:
             else:
                 worker.add_done_callback(lambda _task: retire_response_handler())
 
+    async def _cancel_startup_attempt(self, pending: asyncio.Task[Any]) -> None:
+        """Cancel an attempt and retire a result completed before cancellation.
+
+        An already-completed task cannot be cancelled. Its interface still
+        belongs to startup until adoption clears the ownership field.
+        """
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        if self._startup_connect_task is not pending:
+            return
+        self._startup_connect_task = None
+        if pending.cancelled():
+            return
+        try:
+            client = pending.result()
+        except Exception:
+            return
+        if client is self._client:
+            return
+        close_fn = getattr(client, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                self._logger.debug(
+                    "MeshtasticSession %s failed to close unadopted startup client",
+                    self._adapter_id,
+                    exc_info=True,
+                )
+
     async def _create_client_offloop(self) -> Any:
         """Create the SDK client in a worker thread, off the event loop.
 
@@ -1207,10 +1312,18 @@ class MeshtasticSession:
 
         worker = asyncio.ensure_future(asyncio.to_thread(_build))
         try:
-            return await asyncio.shield(worker)
+            # Cancellation must not reach the native worker. Explicit ownership
+            # also avoids shield() reporting handled late failures on 3.14.
+            await asyncio.wait((worker,))
+            return worker.result()
         except asyncio.CancelledError:
 
             def _dispose_late(task: asyncio.Future[Any]) -> None:
+                """Consume late failures and close clients without reviving a stopped session."""
+                try:
+                    task.result()
+                except (Exception, asyncio.CancelledError):
+                    return
                 client = created.get("client")
                 if client is None:
                     return
@@ -1244,12 +1357,12 @@ class MeshtasticSession:
         jitter = delay * _BACKOFF_JITTER_FRACTION
         return min(cap, max(0.0, delay + random.uniform(-jitter, jitter)))
 
-    async def _reconnect_loop(self) -> None:
-        """Reconnect until success or adapter shutdown using capped backoff.
+    async def _reconnect_loop(self, pending: asyncio.Task[Any] | None = None) -> None:
+        """Adopt an in-flight startup attempt, then retry with capped backoff.
 
-        Initial startup remains fail-fast.  Once an adapter has started,
-        transport downtime does not permanently retire supervision: MEDRE keeps
-        recreating the mtjk client for the lifetime of the session.
+        A startup deadline does not cancel or duplicate native construction.
+        Transport downtime leaves the started session degraded until recovery
+        succeeds or shutdown cancels the owner and disposes any late client.
         """
         self._reconnecting = True
         self._reconnect_attempts = 0
@@ -1273,25 +1386,34 @@ class MeshtasticSession:
                     )
 
             while not self._stop_requested:
-                self._reconnect_attempts += 1
-                self._reconnect_total_attempts += 1
-                actual_delay = self._reconnect_delay(self._reconnect_attempts)
-                self._logger.warning(
-                    "MeshtasticSession %s reconnect attempt %d in %.1fs",
-                    self._adapter_id,
-                    self._reconnect_attempts,
-                    actual_delay,
-                )
-                try:
-                    await asyncio.sleep(actual_delay)
-                except asyncio.CancelledError:
-                    if self._stop_requested:
-                        return
-                    raise
+                if pending is None:
+                    self._reconnect_attempts += 1
+                    self._reconnect_total_attempts += 1
+                    actual_delay = self._reconnect_delay(self._reconnect_attempts)
+                    self._logger.warning(
+                        "MeshtasticSession %s reconnect attempt %d in %.1fs",
+                        self._adapter_id,
+                        self._reconnect_attempts,
+                        actual_delay,
+                    )
+                    try:
+                        await asyncio.sleep(actual_delay)
+                    except asyncio.CancelledError:
+                        if self._stop_requested:
+                            return
+                        raise
                 if self._stop_requested:
                     return
                 try:
-                    new_client = await self._create_client_offloop()
+                    if pending is not None:
+                        initial, pending = pending, None
+                        try:
+                            new_client = await initial
+                        finally:
+                            if self._startup_connect_task is initial:
+                                self._startup_connect_task = None
+                    else:
+                        new_client = await self._create_client_offloop()
                     self._activate_client(new_client)
                     self._subscribe_callbacks()
                     self._refresh_node_id()
@@ -1307,12 +1429,18 @@ class MeshtasticSession:
                         self._reconnecting = False
                         if self._reconnect_task is asyncio.current_task():
                             self._reconnect_task = None
-                    self._logger.info(
-                        "MeshtasticSession %s reconnected after %d "
-                        "consecutive attempts",
-                        self._adapter_id,
-                        self._reconnect_attempts,
-                    )
+                    if self._reconnect_attempts:
+                        self._logger.info(
+                            "MeshtasticSession %s reconnected after %d "
+                            "consecutive attempts",
+                            self._adapter_id,
+                            self._reconnect_attempts,
+                        )
+                    else:
+                        self._logger.info(
+                            "MeshtasticSession %s initial connection became ready",
+                            self._adapter_id,
+                        )
                     self._reconnect_attempts = 0
                     self._last_error = None
                     return

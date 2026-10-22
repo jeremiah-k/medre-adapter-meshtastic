@@ -182,3 +182,23 @@ first five display-name characters. The prefix shares the 227-byte UTF-8 budget
 with the body. Other source platforms retain generic short-name attribution.
 Set `radio_relay_prefix: ""` to disable it or supply a custom generic template;
 omitted/null selects the source-aware default.
+
+## Offline startup and recovery
+
+An offline radio no longer holds up the runtime for the SDK's multi-minute
+connection defaults. The existing sync_timeout_ms setting defaults to 30000:
+MEDRE waits up to 30 seconds for that instance's initial connection, then starts
+it degraded and proceeds with the remaining adapters. Each offline instance has
+its own budget; startup still visits adapter instances in order.
+
+Routes involving a started, degraded radio remain available. Recovery retains
+one connection attempt at a time and retries with capped backoff until the radio
+returns or MEDRE stops. Use `medre diagnostics --refresh-health` to inspect the
+live connection state. A connection returning after shutdown is closed.
+
+Set sync_timeout_ms on the Meshtastic instance to change the initial wait and
+native SDK phase limits. It must be a positive integer in milliseconds. Invalid
+configuration and missing dependencies still fail startup. The async deadline
+does not forcibly terminate a blocking SDK thread; see the
+[connection lifecycle contract](docs/spec/connection-lifecycle.md) for ownership
+and shutdown limits. Native handoff still requires independent RF qualification.
