@@ -166,7 +166,9 @@ class TestCreateClientTcp:
         session = _make_session(config)
 
         result = session._create_client()
-        fake_tcp.assert_called_once_with(hostname="192.168.1.1", portNumber=4403)
+        fake_tcp.assert_called_once_with(
+            hostname="192.168.1.1", portNumber=4403, timeout=30.0, connectTimeout=10.0
+        )
         assert result == "tcp_iface"
 
     def test_tcp_with_host_none_raises_runtime_error(self, monkeypatch) -> None:
@@ -193,7 +195,9 @@ class TestCreateClientTcp:
         session = _make_session(config)
 
         session._create_client()
-        fake_tcp.assert_called_once_with(hostname="10.0.0.1", portNumber=4403)
+        fake_tcp.assert_called_once_with(
+            hostname="10.0.0.1", portNumber=4403, timeout=30.0, connectTimeout=10.0
+        )
 
 
 # ===================================================================
@@ -218,7 +222,7 @@ class TestCreateClientSerial:
         session = _make_session(config)
 
         result = session._create_client()
-        fake_serial.assert_called_once_with(devPath="/dev/ttyUSB0")
+        fake_serial.assert_called_once_with(devPath="/dev/ttyUSB0", timeout=30.0)
         assert result == "serial_iface"
 
 
@@ -246,7 +250,7 @@ class TestCreateClientBle:
         session = _make_session(config)
 
         result = session._create_client()
-        fake_ble.assert_called_once_with(address="AA:BB:CC:DD:EE:FF")
+        fake_ble.assert_called_once_with(address="AA:BB:CC:DD:EE:FF", timeout=30.0)
         assert result == "ble_iface"
 
     def test_ble_with_address_none_raises_runtime_error(self, monkeypatch) -> None:
