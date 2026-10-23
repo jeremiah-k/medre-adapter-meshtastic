@@ -399,3 +399,80 @@ async def test_missing_transport_dependency_remains_a_startup_failure(monkeypatc
     assert not session.reconnecting
     assert session._startup_connect_task is None
     await session.stop()
+
+
+async def test_loop_shutdown_cancellation_does_not_orphan_late_native_client(
+    monkeypatch,
+):
+    """Cancelling asyncio's executor wrapper cannot bypass native-thread disposal."""
+    release, closed = threading.Event(), threading.Event()
+    built_by, closed_by = [], []
+
+    def close():
+        closed_by.append(threading.get_ident())
+        closed.set()
+
+    native = client(close)
+    workers = []
+    original = asyncio.to_thread
+
+    async def tracked_thread(function, *args, **kwargs):
+        workers.append(asyncio.current_task())
+        return await original(function, *args, **kwargs)
+
+    def connect(_):
+        built_by.append(threading.get_ident())
+        assert release.wait(3)
+        return native
+
+    monkeypatch.setattr(asyncio, "to_thread", tracked_thread)
+    session = offline_session(monkeypatch, connect)
+    try:
+        await session.start()
+        await session.stop(timeout=0.2)
+        assert workers and not workers[0].done()
+        # asyncio.run cancels all remaining tasks before draining its executor.
+        workers[0].cancel()
+        await asyncio.gather(workers[0], return_exceptions=True)
+        release.set()
+        assert await wait_until(
+            closed.is_set, timeout=1
+        ), "Native client escaped disposal after executor-wrapper cancellation"
+        assert closed_by == built_by
+        assert len(closed_by) == 1 and closed_by[0] != threading.get_ident()
+        assert not session.connected and session.client is None
+    finally:
+        release.set()
+        await session.stop()
+
+
+async def test_failed_disposal_of_abandoned_native_client_is_operator_visible(
+    monkeypatch, caplog
+):
+    """A late SDK close error cannot disappear into DEBUG-only diagnostics."""
+    import logging
+
+    release = threading.Event()
+    close_called = threading.Event()
+
+    def close():
+        close_called.set()
+        raise RuntimeError("native close refused")
+
+    native = client(close)
+
+    def connect(_):
+        assert release.wait(3)
+        return native
+
+    session = offline_session(monkeypatch, connect)
+    with caplog.at_level(logging.WARNING):
+        try:
+            await session.start()
+            await session.stop(timeout=0.2)
+            release.set()
+            assert await wait_until(close_called.is_set, timeout=1)
+        finally:
+            release.set()
+            await session.stop()
+    assert "failed disposing cancelled connection" in caplog.text

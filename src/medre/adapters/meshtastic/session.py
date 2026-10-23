@@ -1285,7 +1285,7 @@ class MeshtasticSession:
             try:
                 close_fn()
             except Exception:
-                self._logger.debug(
+                self._logger.warning(
                     "MeshtasticSession %s failed to close unadopted startup client",
                     self._adapter_id,
                     exc_info=True,
@@ -1304,11 +1304,36 @@ class MeshtasticSession:
         tore down.
         """
         created: dict[str, Any] = {}
+        ownership = threading.Lock()
+        abandoned = threading.Event()
+        native_done = threading.Event()
+
+        def dispose(client: Any) -> None:
+            """Release a native result without depending on an asyncio task."""
+            close_fn = getattr(client, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    self._logger.warning(
+                        "MeshtasticSession %s failed disposing cancelled connection",
+                        self._adapter_id,
+                        exc_info=True,
+                    )
 
         def _build() -> Any:
-            client = self._create_client()
-            created["client"] = client
-            return client
+            try:
+                client = self._create_client()
+                with ownership:
+                    if not abandoned.is_set():
+                        created["client"] = client
+                        return client
+                # The executor wrapper may already have been cancelled.
+                # Disposal must live in the native thread too.
+                dispose(client)
+                return None
+            finally:
+                native_done.set()
 
         worker = asyncio.ensure_future(asyncio.to_thread(_build))
         try:
@@ -1317,27 +1342,28 @@ class MeshtasticSession:
             await asyncio.wait((worker,))
             return worker.result()
         except asyncio.CancelledError:
+            # Atomic with publication in _build: a late client cannot escape
+            # both the thread disposer and the wrapper completion callback.
+            with ownership:
+                abandoned.set()
+            if not native_done.is_set():
+                self._logger.warning(
+                    "MeshtasticSession %s native connection setup is still running; "
+                    "process exit may wait for its SDK timeout. Any late client "
+                    "will be closed without reactivating the session.",
+                    self._adapter_id,
+                )
 
             def _dispose_late(task: asyncio.Future[Any]) -> None:
-                """Consume late failures and close clients without reviving a stopped session."""
+                """Retire a published result even if loop shutdown cancels its wrapper."""
                 try:
                     task.result()
                 except (Exception, asyncio.CancelledError):
-                    return
-                client = created.get("client")
-                if client is None:
-                    return
-                close_fn = getattr(client, "close", None)
-                if callable(close_fn):
-                    try:
-                        close_fn()
-                    except Exception:
-                        self._logger.debug(
-                            "MeshtasticSession %s disposed client created "
-                            "after cancellation",
-                            self._adapter_id,
-                            exc_info=True,
-                        )
+                    pass
+                with ownership:
+                    client = created.pop("client", None)
+                if client is not None:
+                    dispose(client)
 
             worker.add_done_callback(_dispose_late)
             raise

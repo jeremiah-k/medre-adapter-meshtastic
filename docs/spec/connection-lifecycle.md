@@ -35,3 +35,16 @@ Health MUST report degraded while disconnected and healthy after the connection
 is restored, subject to existing queue-pressure diagnostics. Recovery MUST NOT
 turn a queued or failed delivery into confirmed RF receipt. Core retry and native
 handoff evidence retain their existing meanings and limits.
+
+## Native construction during interpreter shutdown
+
+Cancellation MUST mark a pending constructor result as abandoned independently
+of its asyncio wrapper. A client returned after abandonment MUST be closed in
+the native thread, even when event-loop shutdown has cancelled that wrapper.
+A result published before cancellation MUST be retired exactly once by the
+retained disposer. Neither path may activate a stopped session.
+
+An outstanding native constructor MUST be reported when session shutdown leaves
+it running. Coroutine cancellation does not terminate the SDK's synchronous
+constructor; interpreter exit may await its timeout. Hard process-exit bounds
+require an SDK-supported cancellation mechanism or an owned process boundary.
