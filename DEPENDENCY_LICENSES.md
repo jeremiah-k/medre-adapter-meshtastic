@@ -3,7 +3,7 @@
 The `LICENSE` in this repository covers original MEDRE-authored adapter code
 (MIT), **not** the `mtjk` library it uses.
 
-- `mtjk==2.7.11.post11`: GPL-3.0-only — [release metadata](https://pypi.org/project/mtjk/2.7.11.post11/).
+- `mtjk @ git+https://github.com/jeremiah-k/mtjk.git@487116e023a8b4dcc60881e7fdefce2eab48bddc`: GPL-3.0-only — [source license](https://github.com/jeremiah-k/mtjk/blob/487116e023a8b4dcc60881e7fdefce2eab48bddc/LICENSE.md).
 - `PyPubSub==4.0.7`: BSD-2-Clause — [release metadata](https://pypi.org/project/Pypubsub/4.0.7/).
   Preserve its required notices when distributing it.
 

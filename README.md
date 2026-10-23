@@ -202,3 +202,13 @@ configuration and missing dependencies still fail startup. The async deadline
 does not forcibly terminate a blocking SDK thread; see the
 [connection lifecycle contract](docs/spec/connection-lifecycle.md) for ownership
 and shutdown limits. Native handoff still requires independent RF qualification.
+
+## SDK candidate qualification
+
+This test branch selects the merged SDK cancellation implementation by immutable
+Git commit. Its SDK contract helper checks the installed repository and full
+commit recorded in `direct_url.json`, following the [installer provenance
+specification](https://packaging.python.org/en/latest/specifications/direct-url-data-structure/).
+Branches, tags, abbreviated commits, editable checkouts and matching-version
+packages from another source do not satisfy this candidate pin. The main branch
+retains its released SDK pins and shared conformance helper.
