@@ -1304,11 +1304,32 @@ class MeshtasticSession:
         tore down.
         """
         created: dict[str, Any] = {}
+        ownership = threading.Lock()
+        abandoned = threading.Event()
+
+        def dispose(client: Any) -> None:
+            """Release a native result without depending on an asyncio task."""
+            close_fn = getattr(client, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    self._logger.debug(
+                        "MeshtasticSession %s failed disposing cancelled connection",
+                        self._adapter_id,
+                        exc_info=True,
+                    )
 
         def _build() -> Any:
             client = self._create_client()
-            created["client"] = client
-            return client
+            with ownership:
+                if not abandoned.is_set():
+                    created["client"] = client
+                    return client
+            # asyncio.run can cancel the executor wrapper before this call
+            # returns. Disposal must therefore live in the native thread too.
+            dispose(client)
+            return None
 
         worker = asyncio.ensure_future(asyncio.to_thread(_build))
         try:
@@ -1317,27 +1338,25 @@ class MeshtasticSession:
             await asyncio.wait((worker,))
             return worker.result()
         except asyncio.CancelledError:
+            abandoned.set()
+            if not worker.done():
+                self._logger.warning(
+                    "MeshtasticSession %s native connection setup is still running; "
+                    "process exit may wait for its SDK timeout. Any late client "
+                    "will be closed without reactivating the session.",
+                    self._adapter_id,
+                )
 
             def _dispose_late(task: asyncio.Future[Any]) -> None:
-                """Consume late failures and close clients without reviving a stopped session."""
+                """Retire a published result even if loop shutdown cancels its wrapper."""
                 try:
                     task.result()
                 except (Exception, asyncio.CancelledError):
-                    return
-                client = created.get("client")
-                if client is None:
-                    return
-                close_fn = getattr(client, "close", None)
-                if callable(close_fn):
-                    try:
-                        close_fn()
-                    except Exception:
-                        self._logger.debug(
-                            "MeshtasticSession %s disposed client created "
-                            "after cancellation",
-                            self._adapter_id,
-                            exc_info=True,
-                        )
+                    pass
+                with ownership:
+                    client = created.pop("client", None)
+                if client is not None:
+                    dispose(client)
 
             worker.add_done_callback(_dispose_late)
             raise
