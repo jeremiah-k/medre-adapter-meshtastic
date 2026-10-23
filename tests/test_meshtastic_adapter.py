@@ -222,7 +222,7 @@ class TestMeshtasticAdapterConnectionModes:
     def _patch_session_create_client(self, adapter, FakeClass, monkeypatch):
         """Patch MeshtasticSession._create_client to return a FakeClass instance."""
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClass()
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -244,7 +244,7 @@ class TestMeshtasticAdapterConnectionModes:
         )
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeTCP(
                 hostname=session_self._config.host,
                 portNumber=session_self._config.port,
@@ -277,7 +277,7 @@ class TestMeshtasticAdapterConnectionModes:
         )
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeSerial(devPath=session_self._config.serial_port)
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -305,7 +305,7 @@ class TestMeshtasticAdapterConnectionModes:
         )
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeBLE(address=session_self._config.ble_address)
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -394,7 +394,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -421,7 +421,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -455,7 +455,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -492,7 +492,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -530,7 +530,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -570,7 +570,7 @@ class TestMeshtasticAdapterPubsubSubscription:
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
         adapter = MeshtasticAdapter(config)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
@@ -748,7 +748,7 @@ class TestMeshtasticAdapterQueueOwnership:
         monkeypatch.setattr(
             MeshtasticSession,
             "_create_client",
-            lambda self: fake_client,
+            lambda self, **kwargs: fake_client,
         )
         monkeypatch.setattr(
             MeshtasticSession, "_subscribe_callbacks", lambda self: None

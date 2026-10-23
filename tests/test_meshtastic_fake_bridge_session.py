@@ -208,7 +208,9 @@ class TestMeshtasticSendOneBridge:
 
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
-        def fake_create_client(session_self: MeshtasticSession) -> FakeClient:
+        def fake_create_client(
+            session_self: MeshtasticSession, *, cancel_event=None
+        ) -> FakeClient:
             return fake_client
 
         monkeypatch.setattr(MeshtasticSession, "_create_client", fake_create_client)
