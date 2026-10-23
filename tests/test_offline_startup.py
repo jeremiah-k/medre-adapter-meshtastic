@@ -444,3 +444,35 @@ async def test_loop_shutdown_cancellation_does_not_orphan_late_native_client(
     finally:
         release.set()
         await session.stop()
+
+
+async def test_failed_disposal_of_abandoned_native_client_is_operator_visible(
+    monkeypatch, caplog
+):
+    """A late SDK close error cannot disappear into DEBUG-only diagnostics."""
+    import logging
+
+    release = threading.Event()
+    close_called = threading.Event()
+
+    def close():
+        close_called.set()
+        raise RuntimeError("native close refused")
+
+    native = client(close)
+
+    def connect(_):
+        assert release.wait(3)
+        return native
+
+    session = offline_session(monkeypatch, connect)
+    with caplog.at_level(logging.WARNING):
+        try:
+            await session.start()
+            await session.stop(timeout=0.2)
+            release.set()
+            assert await wait_until(close_called.is_set, timeout=1)
+        finally:
+            release.set()
+            await session.stop()
+    assert "failed disposing cancelled connection" in caplog.text
