@@ -537,7 +537,7 @@ class TestReconnectSuccessPath:
         def tracking_unsub(self):
             call_order.append("unsubscribe")
 
-        def tracking_create(self):
+        def tracking_create(self, *, cancel_event=None):
             call_order.append("create_client")
             return fake_client
 
@@ -713,7 +713,7 @@ class TestConnectionLostSubscription:
 
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(type(session), "_create_client", fake_create_client)
@@ -745,7 +745,7 @@ class TestConnectionLostSubscription:
 
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(type(session), "_create_client", fake_create_client)
@@ -781,7 +781,7 @@ class TestConnectionLostSubscription:
 
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(type(session), "_create_client", fake_create_client)
@@ -810,7 +810,7 @@ class TestConnectionLostSubscription:
 
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(type(session), "_create_client", fake_create_client)
@@ -849,7 +849,7 @@ class TestConnectionLostSubscription:
 
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(type(session), "_create_client", fake_create_client)
@@ -910,7 +910,7 @@ class TestNotifyConnectionLostThreadSafety:
 
         monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
 
-        def fake_create_client(session_self):
+        def fake_create_client(session_self, *, cancel_event=None):
             return FakeClient()
 
         monkeypatch.setattr(type(session), "_create_client", fake_create_client)

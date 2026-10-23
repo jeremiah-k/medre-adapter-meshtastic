@@ -48,3 +48,13 @@ An outstanding native constructor MUST be reported when session shutdown leaves
 it running. Coroutine cancellation does not terminate the SDK's synchronous
 constructor; interpreter exit may await its timeout. Hard process-exit bounds
 require an SDK-supported cancellation mechanism or an owned process boundary.
+
+### Cooperative SDK construction cancellation
+
+For SDK constructors that explicitly declare keyword-capable `cancelEvent`, the session passes
+its invocation-owned abandonment event. Cancelling the construction coroutine
+sets this event before late-result retirement. The event MUST NOT be retained as
+session-wide cancellation state or reused for another attempt. SDKs without this
+parameter retain the late-client disposal path. Native operations that do not
+observe the event can still delay interpreter exit; the host does not claim to
+terminate a thread.

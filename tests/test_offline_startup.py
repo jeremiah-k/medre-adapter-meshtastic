@@ -22,7 +22,7 @@ async def test_initial_radio_constructor_does_not_block_the_runtime_loop(monkeyp
     observed = []
     client = SimpleNamespace(close=lambda: None, myInfo=SimpleNamespace(my_node_num=1))
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         """Stand in for a blocking native connect, with an owned cleanup release."""
         entered.set()
         assert release.wait(2), "Test constructor was not released"
@@ -99,7 +99,7 @@ async def test_startup_budget_preserves_one_attempt_and_recovers_without_restart
     calls = []
     native = client()
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         """Remain offline until the test's explicit availability change."""
         calls.append(1)
         assert release.wait(3)
@@ -131,7 +131,7 @@ async def test_quick_connection_failure_enters_lifetime_retry_and_recovers(monke
     calls = []
     native = client()
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         """Simulate a real constructor refusal until the node comes online."""
         calls.append(1)
         if not available.is_set():
@@ -154,7 +154,7 @@ async def test_stop_during_pending_startup_disposes_the_late_client(monkeypatch)
     release, closed = threading.Event(), threading.Event()
     native = client(closed.set)
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         """Return only after session shutdown has completed."""
         assert release.wait(3)
         return native
@@ -177,7 +177,7 @@ async def test_cancelling_initial_start_keeps_late_client_disposal_owned(monkeyp
     entered, release, closed = threading.Event(), threading.Event(), threading.Event()
     native = client(closed.set)
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         """Signal native construction before the async caller is cancelled."""
         entered.set()
         assert release.wait(3)
@@ -222,7 +222,7 @@ async def test_offline_second_radio_does_not_block_other_runtime_adapters(
     release = threading.Event()
     calls = []
 
-    def connect(session):
+    def connect(session, *, cancel_event=None):
         """Only the second configured node is offline; every native handle is owned."""
         calls.append(session._adapter_id)
         if session._adapter_id == "FXSF":
@@ -305,7 +305,7 @@ async def test_late_constructor_failure_is_retrieved_after_shutdown(monkeypatch)
     loop = asyncio.get_running_loop()
     previous_handler = loop.get_exception_handler()
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         """Fail only after shutdown has cancelled the async attempt owner."""
         assert release.wait(3)
         raise RuntimeError("late native construction failure")
@@ -333,7 +333,7 @@ async def test_cancel_at_completed_startup_closes_unadopted_result(monkeypatch):
     """Cancellation winning against task adoption cannot leak a ready interface."""
     closed = threading.Event()
     native = client(closed.set)
-    session = offline_session(monkeypatch, lambda _: native)
+    session = offline_session(monkeypatch, lambda _, **kwargs: native)
 
     async def complete_and_cancel(_):
         """Cancel the caller in the same loop turn that produces its client."""
@@ -356,7 +356,7 @@ async def test_stop_closes_completed_startup_before_supervisor_adoption(monkeypa
     release, closed = threading.Event(), threading.Event()
     native = client(closed.set)
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         """Wait past the startup deadline and then produce an unadopted client."""
         assert release.wait(3)
         return native
@@ -420,7 +420,7 @@ async def test_loop_shutdown_cancellation_does_not_orphan_late_native_client(
         workers.append(asyncio.current_task())
         return await original(function, *args, **kwargs)
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         built_by.append(threading.get_ident())
         assert release.wait(3)
         return native
@@ -461,7 +461,7 @@ async def test_failed_disposal_of_abandoned_native_client_is_operator_visible(
 
     native = client(close)
 
-    def connect(_):
+    def connect(_, *, cancel_event=None):
         assert release.wait(3)
         return native
 

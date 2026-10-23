@@ -825,7 +825,7 @@ class MeshtasticSession:
 
     # -- Client creation (protected, overridable for testing) -----------------
 
-    def _create_client(self) -> Any:
+    def _create_client(self, *, cancel_event: threading.Event | None = None) -> Any:
         """Create a Meshtastic interface client based on config.
 
         Uses the real ``meshtastic`` library interfaces.
@@ -840,6 +840,19 @@ class MeshtasticSession:
         MeshtasticConnectionError
             If the client cannot be created.
         """
+
+        def cancellation_kwargs(factory: Callable[..., Any]) -> dict[str, Any]:
+            """Opt in only when the SDK declares keyword-capable cancelEvent."""
+            if cancel_event is None:
+                return {}
+            try:
+                parameter = inspect.signature(factory).parameters.get("cancelEvent")
+            except (TypeError, ValueError):
+                return {}
+            if parameter is None or parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+                return {}
+            return {"cancelEvent": cancel_event}
+
         try:
             conn = self._config.connection_type
             if conn == "tcp":
@@ -849,6 +862,7 @@ class MeshtasticSession:
                 from meshtastic.tcp_interface import TCPInterface
 
                 return TCPInterface(
+                    **cancellation_kwargs(TCPInterface),
                     timeout=self._config.sync_timeout_ms / 1000,
                     connectTimeout=min(10.0, self._config.sync_timeout_ms / 1000),
                     hostname=self._config.host,
@@ -865,6 +879,7 @@ class MeshtasticSession:
                 from meshtastic.serial_interface import SerialInterface
 
                 return SerialInterface(
+                    **cancellation_kwargs(SerialInterface),
                     devPath=self._config.serial_port,
                     timeout=self._config.sync_timeout_ms / 1000,
                 )
@@ -879,6 +894,7 @@ class MeshtasticSession:
                 )
 
                 return BLEInterface(
+                    **cancellation_kwargs(BLEInterface),
                     address=self._config.ble_address,
                     timeout=self._config.sync_timeout_ms / 1000,
                 )
@@ -1323,7 +1339,20 @@ class MeshtasticSession:
 
         def _build() -> Any:
             try:
-                client = self._create_client()
+                create = self._create_client
+                try:
+                    parameter = inspect.signature(create).parameters.get("cancel_event")
+                except (TypeError, ValueError):
+                    parameter = None
+                if parameter is not None and parameter.kind in (
+                    inspect.Parameter.KEYWORD_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                ):
+                    client = create(cancel_event=abandoned)
+                else:
+                    # Private overrides and injected factories may keep the
+                    # legacy signature. Late-result retirement still owns them.
+                    client = create()
                 with ownership:
                     if not abandoned.is_set():
                         created["client"] = client
