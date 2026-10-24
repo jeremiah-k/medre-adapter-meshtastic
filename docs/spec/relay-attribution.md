@@ -15,3 +15,19 @@ The entire composed prefix, reply/reaction text and message MUST fit the target'
 it MUST NOT split an encoded code point. Matrix display-name abbreviation uses
 characters; final wire truncation uses bytes. Native tapbacks remain native
 without an added visible text prefix.
+
+
+## Reactions across radio instances
+
+Reactions sourced from any configured Meshtastic instance MUST retain native
+Meshtastic tapback semantics when a numeric destination-native target is known.
+The source and destination adapter IDs need not match. Transport classification
+MUST use the provider-owned instance configuration, not an adapter-name prefix
+or wire metadata.
+
+Across Meshtastic instances, replies and reactions MUST use the destination's
+native target mapping. A source codec's meshtastic_reply_id hint MUST NOT be
+reused as an unmapped destination packet ID. Missing destination mappings MUST
+fall back to readable text without native relation fields. Explicit fallback
+strategies MUST NOT emit native tapback fields. Reactions from other transports
+retain MMRelay-compatible descriptive rendering.
