@@ -894,6 +894,8 @@ class MeshtasticRenderer:
         if "body" in event.payload or "text" in event.payload:
             select_message_body(event.payload)
         if rel.key is not None:
+            if not isinstance(rel.key, str):
+                raise ValueError("Reaction key must be text")
             stripped = rel.key.strip()
             if stripped:
                 return stripped

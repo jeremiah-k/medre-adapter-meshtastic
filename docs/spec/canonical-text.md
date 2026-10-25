@@ -7,3 +7,11 @@ selected value MUST fail before native submission. Invalid optional formatting
 MUST NOT decorate a different compatibility alias. Relation fallbacks follow
 selection; prefixes, native identity, budgets and delivery evidence remain
 adapter-owned. This change requires the candidate core text-selection revision.
+
+Candidate qualification MUST use an explicit immutable core revision. Ordinary
+CI MUST retain core main as its baseline; dependency merges precede consumers.
+
+Native queue draining MUST reject malformed retained payloads or text as
+permanent failures before calling the session. Such records MUST NOT consume
+transient retry attempts. Reaction keys MUST NOT bypass canonical body validation;
+native reply and tapback authority still follows the proven destination mapping.
