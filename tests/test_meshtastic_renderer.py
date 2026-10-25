@@ -683,3 +683,31 @@ class TestMeshtasticRendererForeignRefs:
         )
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({"body": "current", "text": "legacy"}, "legacy"),
+        (
+            {
+                "body": "current",
+                "text": "legacy",
+                "formatting": {"version": 1, "spans": []},
+            },
+            "current",
+        ),
+    ],
+)
+async def test_meshtastic_text_authority_matches_core(payload, expected):
+    """Unstyled aliases and styled message bodies take the shared precedence."""
+    renderer = _make_renderer(max_text_bytes=227)
+    event = _make_event(payload=payload)
+    result = await renderer.render(
+        event,
+        RenderingContext(
+            target_adapter="mesh-1", target_channel="0",
+            target_platform="meshtastic", delivery_strategy="direct",
+        ),
+    )
+    assert result.payload["text"] == expected
