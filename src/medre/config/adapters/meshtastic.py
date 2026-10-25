@@ -159,8 +159,8 @@ class MeshtasticConfig:
     queue_max_size: int = 1024
     queue_warning_threshold_pct: float = 75.0
     queue_critical_threshold_pct: float = 90.0
-    reconnect_backoff_initial_seconds: float = 1.0
-    reconnect_backoff_max_seconds: float = 30.0
+    reconnect_backoff_initial_seconds: float = 10.0
+    reconnect_backoff_max_seconds: float = 300.0
     tcp_liveness_interval_seconds: float = 60.0
     tcp_liveness_timeout_seconds: float = 30.0
     outbound_mode: Literal["enabled", "listen_only"] = "enabled"

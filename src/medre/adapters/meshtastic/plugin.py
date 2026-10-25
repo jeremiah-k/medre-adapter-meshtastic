@@ -7,6 +7,12 @@ from medre.adapter_spec import AdapterSpec, SymbolRef
 
 
 def adapter_spec() -> AdapterSpec:
+    """Declare native bindings and keep SDK connection diagnostics opt-in.
+
+    The session reports actionable reconnect failures itself. SDK warning-level
+    tracebacks duplicate that summary during expected BLE outages; explicit
+    operator logger overrides still expose them for diagnosis.
+    """
     # Prompt metadata is optional; discovery works with released core versions
     # that do not expose the authoring form contract.
     native_setup: dict[str, Any] = {}
@@ -60,6 +66,10 @@ def adapter_spec() -> AdapterSpec:
         distribution="mtjk",
         import_names=("mtjk", "meshtastic"),
         sdk_import_roots=("meshtastic", "serial", "serial_asyncio"),
+        logger_levels=(
+            ("meshtastic.ble", "ERROR"),
+            ("meshtastic.ble_interface", "ERROR"),
+        ),
         native_namespace_reader=SymbolRef(
             "medre.adapters.meshtastic.event_shape", "meshtastic_namespace"
         ),
