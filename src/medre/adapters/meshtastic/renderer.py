@@ -889,16 +889,24 @@ class MeshtasticRenderer:
         Each value is stripped; only non-empty results are returned.
         Returns ``None`` when no source yields a non-empty string.
         """
+        # Reaction keys do not authorize malformed body/compatibility aliases.
+        # Validate the canonical text even when a native tapback key wins.
+        if "body" in event.payload or "text" in event.payload:
+            select_message_body(event.payload)
         if rel.key is not None:
             stripped = rel.key.strip()
             if stripped:
                 return stripped
-        for field in ("key", "emoji", "body"):
-            _val = event.payload.get(field)
-            if _val:
-                stripped = str(_val).strip()
-                if stripped:
-                    return stripped
+        for field in ("key", "emoji"):
+            value = event.payload.get(field)
+            if value is not None and not isinstance(value, str):
+                raise ValueError("Reaction key must be text")
+            if value and value.strip():
+                return value.strip()
+        if "body" in event.payload or "text" in event.payload:
+            body = select_message_body(event.payload).strip()
+            if body:
+                return body
         return None
 
     @staticmethod
