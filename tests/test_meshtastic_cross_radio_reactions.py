@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -24,6 +25,7 @@ from medre_meshtastic_tests.helpers.meshtastic_bridge import (
 )
 
 
+@pytest.mark.parametrize("mapping_ready", [True, False])
 @pytest.mark.parametrize(
     "source,target,source_channel,target_channel",
     [
@@ -36,9 +38,15 @@ from medre_meshtastic_tests.helpers.meshtastic_bridge import (
     ],
 )
 async def test_native_reaction_crosses_radios_after_durable_handoff(
-    source, target, source_channel, target_channel, temp_storage, monkeypatch
+    source,
+    target,
+    source_channel,
+    target_channel,
+    mapping_ready,
+    temp_storage,
+    monkeypatch,
 ):
-    """Decode, route, queue, persist native IDs, then react using the destination ID."""
+    """Use native tapbacks only after handoff; queued fallback is never upgraded."""
     configs = {
         name: MeshtasticConfig(
             adapter_id=name,
@@ -76,6 +84,9 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
             event_bus=EventBus(),
         )
     )
+    first_entered, release_original = asyncio.Event(), asyncio.Event()
+    if mapping_ready:
+        release_original.set()
     await runner.start()
     try:
         for name, adapter in adapters.items():
@@ -87,7 +98,18 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
         # remains controlled and no SDK, sockets, serial or BLE are opened.
         session._client = SimpleNamespace(close=lambda: None)
         assert session.connected
-        send = AsyncMock(side_effect=[{"id": 9001}, {"id": 9002}])
+        submissions = 0
+
+        async def native_send(_payload):
+            """Hold the first native result to expose the pre-mapping queue window."""
+            nonlocal submissions
+            submissions += 1
+            if submissions == 1:
+                first_entered.set()
+                await release_original.wait()
+            return {"id": 9000 + submissions}
+
+        send = AsyncMock(side_effect=native_send)
         monkeypatch.setattr(type(session), "send", send)
         await adapters[source].simulate_inbound(
             make_text_packet(
@@ -100,16 +122,25 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
                 target, str(target_channel), "9001"
             )
 
-        assert await wait_until(handed_off)
-        original_id = await handed_off()
+        assert await wait_until(first_entered.is_set)
+        if mapping_ready:
+            assert await wait_until(handed_off)
+        else:
+            assert await handed_off() is None
         reaction = make_text_packet(text="👍", packet_id=102, channel=source_channel)
         reaction["decoded"].update(replyId=101, emoji=1)
         await adapters[source].simulate_inbound(reaction)
+        release_original.set()
         assert await wait_until(lambda: send.await_count == 2)
         wire = send.await_args_list[1].args[0]
-        assert wire["text"] == "👍"
-        assert wire["reply_id"] == 9001
-        assert wire["emoji"] == 1
+        if mapping_ready:
+            assert wire["text"] == "👍"
+            assert wire["reply_id"] == 9001
+            assert wire["emoji"] == 1
+        else:
+            assert wire["text"] == "[reacted: 👍]"
+            assert "reply_id" not in wire
+            assert "emoji" not in wire
         assert wire["channel_index"] == target_channel
 
         async def reaction_handed_off():
@@ -118,6 +149,20 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
             )
 
         assert await wait_until(reaction_handed_off)
+        original_id = await handed_off()
+        assert original_id is not None
+        if not mapping_ready:
+            # Publishing the original mapping cannot mutate queued/sent fallback.
+            assert send.await_count == 2
+            assert "emoji" not in send.await_args_list[1].args[0]
+            later = make_text_packet(text="👍", packet_id=103, channel=source_channel)
+            later["decoded"].update(replyId=101, emoji=1)
+            await adapters[source].simulate_inbound(later)
+            assert await wait_until(lambda: send.await_count == 3)
+            later_wire = send.await_args_list[2].args[0]
+            assert later_wire["reply_id"] == 9001
+            assert later_wire["emoji"] == 1
+            assert later_wire["text"] == "👍"
         event_id = await temp_storage.resolve_native_ref(
             source, str(source_channel), "102"
         )
@@ -128,6 +173,7 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
         assert stored.relations[0].target_native_ref.adapter == source
         assert stored.relations[0].target_native_ref.native_message_id == "101"
     finally:
+        release_original.set()
         for adapter in reversed(list(adapters.values())):
             await adapter.stop()
         await runner.stop()
