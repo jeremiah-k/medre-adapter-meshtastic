@@ -706,8 +706,27 @@ async def test_meshtastic_text_authority_matches_core(payload, expected):
     result = await renderer.render(
         event,
         RenderingContext(
-            target_adapter="mesh-1", target_channel="0",
-            target_platform="meshtastic", delivery_strategy="direct",
+            target_adapter="mesh-1",
+            target_channel="0",
+            target_platform="meshtastic",
+            delivery_strategy="direct",
         ),
     )
     assert result.payload["text"] == expected
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"body": "valid body", "text": 42},
+        {"body": 42, "text": "legacy"},
+        {"body": None, "text": "legacy", "formatting": {"version": 1, "spans": []}},
+    ],
+)
+async def test_malformed_canonical_text_never_becomes_radio_content(payload):
+    """Reject malformed source text before packet rendering or native dispatch."""
+    with pytest.raises(ValueError, match="must be text"):
+        await _make_renderer(max_text_bytes=227).render(
+            _make_event(payload=payload),
+            RenderingContext("direct", "mesh-1", "0", "meshtastic"),
+        )

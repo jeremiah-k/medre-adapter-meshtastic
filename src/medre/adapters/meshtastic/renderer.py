@@ -64,7 +64,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 from medre.adapters.metadata import project_source_fields
 from medre.core.events import CanonicalEvent, EventKind, EventRelation
-from medre.core.rendering.text_helpers import extract_message_body
+from medre.core.events.text import select_message_body
 from medre.core.rendering.attribution import (
     PrefixFormatterResult,
     build_relay_attribution,
@@ -628,7 +628,7 @@ class MeshtasticRenderer:
                 return (self._extract_text(event), None)
             target_marker = self._resolve_reply_target_marker(rel)
             if target_marker:
-                body = extract_message_body(event)
+                body = select_message_body(event.payload)
                 return (f"[replying to: {target_marker}] {body}", None)
             return (self._extract_text(event), None)
 
@@ -663,7 +663,7 @@ class MeshtasticRenderer:
             )
 
         if rel.relation_type == "edit":
-            payload_text = extract_message_body(event)
+            payload_text = select_message_body(event.payload)
             if payload_text:
                 return (f"[edited] {payload_text}", None)
             return ("[edited]", None)
@@ -675,7 +675,7 @@ class MeshtasticRenderer:
             return ("[deleted]", None)
 
         if rel.relation_type == "thread":
-            payload_text = extract_message_body(event)
+            payload_text = select_message_body(event.payload)
             target_marker = self._resolve_reply_target_marker(rel) or "?"
             if payload_text:
                 return (f"[thread: {target_marker}] {payload_text}", None)
@@ -798,7 +798,7 @@ class MeshtasticRenderer:
 
         # 3. Event payload body/text
         if not source_text:
-            source_text = extract_message_body(event)
+            source_text = select_message_body(event.payload)
 
         # Normalise: treat str and non-str uniformly
         text = str(source_text) if source_text else ""
@@ -829,10 +829,10 @@ class MeshtasticRenderer:
         if event.relations:
             rel = event.relations[0]
             if rel.relation_type == "reply" and rel.fallback_text:
-                payload_text = extract_message_body(event)
+                payload_text = select_message_body(event.payload)
                 return f"[replying to: {rel.fallback_text}] {payload_text}"
 
-        return extract_message_body(event)
+        return select_message_body(event.payload)
 
     @staticmethod
     def _meshtastic_reply_id_from_relation(
@@ -904,7 +904,7 @@ class MeshtasticRenderer:
     @staticmethod
     def _plain_text(event: CanonicalEvent) -> str:
         """Extract plain text without relation fallback formatting."""
-        return extract_message_body(event)
+        return select_message_body(event.payload)
 
 
 def build_meshtastic_renderer(
