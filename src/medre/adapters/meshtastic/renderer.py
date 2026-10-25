@@ -38,8 +38,8 @@ split.  Truncation metadata and the ``RenderingResult.truncated`` flag
 report whether the text was trimmed.
 
 **Cross-platform reaction rendering (MMRelay-compatible).**
-When a reaction originates from a *different* adapter than the Meshtastic
-target (e.g. Matrix → Meshtastic), the renderer emits descriptive text
+When a reaction originates outside the configured Meshtastic instances
+(e.g. Matrix → Meshtastic), the renderer emits descriptive text
 rather than a native Meshtastic emoji tapback:
 
 * ``{compact_prefix} reacted {emoji} to "{abbreviated_text}"``
@@ -334,13 +334,13 @@ class MeshtasticRenderer:
           prefix.
         * *reply* without numeric native ref — emits plain text
           without ``reply_id``; no fallback prefix is added.
-        * *native reaction* (same adapter) with a numeric
+        * *native reaction* (configured Meshtastic source) with a numeric
           ``target_native_ref.native_message_id`` — sets ``reply_id``
           (int) and ``emoji`` (1); text is the emoji string from
           ``relation.key`` or payload ``key``/``body``.
         * *native reaction* without numeric native ref — emits readable
           fallback text ``"[reacted: {emoji}]"`` with no ``emoji`` field.
-        * *cross-platform reaction* (different source adapter, e.g.
+        * *cross-platform reaction* (non-Meshtastic source, e.g.
           Matrix → Meshtastic) — emits MMRelay-compatible descriptive
           text: ``{compact_prefix} reacted {emoji} to "{abbreviated}"``.
           Sets ``reply_id`` if a Meshtastic packet ID is available.
@@ -445,9 +445,8 @@ class MeshtasticRenderer:
                 content["text"] = fallback_text
                 if fallback_prefix is not None:
                     prefix_result = fallback_prefix
-                if rel.relation_type == "reaction" and not self._is_native_reaction(
-                    event,
-                    target_adapter,
+                if rel.relation_type == "reaction" and not self._is_meshtastic_source(
+                    event
                 ):
                     is_descriptive_reaction = True
             else:
@@ -455,6 +454,10 @@ class MeshtasticRenderer:
                 reply_id = self._meshtastic_reply_id_from_relation(
                     rel,
                     target_adapter,
+                    allow_metadata_fallback=(
+                        event.source_adapter == target_adapter
+                        or not self._is_meshtastic_source(event)
+                    ),
                 )
 
                 if rel.relation_type == "reply":
@@ -464,7 +467,7 @@ class MeshtasticRenderer:
                         content["reply_id"] = reply_id
                 elif rel.relation_type == "reaction":
                     emoji_text = self._resolve_emoji_text(rel, event) or ""
-                    if self._is_native_reaction(event, target_adapter):
+                    if self._is_meshtastic_source(event):
                         # Native Meshtastic tapback
                         if reply_id is not None:
                             content["text"] = emoji_text
@@ -630,7 +633,7 @@ class MeshtasticRenderer:
 
         if rel.relation_type == "reaction":
             emoji_text = self._resolve_emoji_text(rel, event) or ""
-            if self._is_native_reaction(event, target_adapter):
+            if self._is_meshtastic_source(event):
                 # Native reaction degraded to readable text (no tapback).
                 return (f"[reacted: {emoji_text}]", None)
             # Cross-platform reaction: MMRelay-style descriptive text,
@@ -744,28 +747,15 @@ class MeshtasticRenderer:
 
         return (truncated_text, True, original_bytes, rendered_bytes)
 
-    @staticmethod
-    def _is_native_reaction(event: CanonicalEvent, target_adapter: str) -> bool:
-        """Return ``True`` when a reaction event originates from the same
-        adapter as the Meshtastic target.
+    def _is_meshtastic_source(self, event: CanonicalEvent) -> bool:
+        """Recognize Meshtastic source instances from the provider-owned config map.
 
-        Native Meshtastic tapbacks (``emoji=1``) are emitted only when
-        the reaction was decoded from a Meshtastic packet.  Cross-platform
-        reactions (e.g. Matrix → Meshtastic) use MMRelay-style descriptive
-        text instead.
-
-        Parameters
-        ----------
-        event:
-            The canonical event being rendered.
-        target_adapter:
-            The adapter name of the Meshtastic target.
-
-        Returns
-        -------
-        bool
+        Runtime assembly supplies every enabled Meshtastic instance, so an LF
+        radio and an LT radio share native reaction semantics despite distinct
+        IDs. External sources retain descriptive MMRelay reaction rendering.
+        Wire metadata and adapter-name spelling do not establish transport type.
         """
-        return event.source_adapter == target_adapter
+        return event.source_adapter in self._configs
 
     @staticmethod
     def _abbreviated_original_text(
@@ -847,7 +837,7 @@ class MeshtasticRenderer:
 
     @staticmethod
     def _meshtastic_reply_id_from_relation(
-        relation: object, target_adapter: str
+        relation: object, target_adapter: str, *, allow_metadata_fallback: bool = True
     ) -> int | None:
         """Extract a numeric Meshtastic reply ID from a relation.
 
@@ -859,7 +849,9 @@ class MeshtasticRenderer:
            MatrixCodec for MMRelay-style emote reactions).
         3. ``None`` — no usable Meshtastic reply ID.
 
-        Never uses a native ref from a different adapter.
+        Never uses a native ref from a different adapter. Native cross-radio
+        callers disable metadata fallback because the codec's numeric hint is
+        in the source radio's namespace, not the destination's.
         """
         ref = getattr(relation, "target_native_ref", None)
         if ref is not None:
@@ -871,6 +863,12 @@ class MeshtasticRenderer:
                         return int(mid)
                     except (ValueError, TypeError):
                         pass
+
+        # A source Meshtastic codec records its own reply ID in metadata.
+        # Across radio instances that number belongs to another namespace;
+        # only the destination's enriched native ref can supply a target.
+        if not allow_metadata_fallback:
+            return None
 
         # Fallback: MMRelay meshtastic_reply_id from relation metadata
         metadata = getattr(relation, "metadata", None) or {}
