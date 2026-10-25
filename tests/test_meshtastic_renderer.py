@@ -730,3 +730,22 @@ async def test_malformed_canonical_text_never_becomes_radio_content(payload):
             _make_event(payload=payload),
             RenderingContext("direct", "mesh-1", "0", "meshtastic"),
         )
+
+
+@pytest.mark.parametrize("strategy", ["direct", "fallback_text"])
+@pytest.mark.parametrize("styled", [False, True])
+async def test_reply_text_selection_preserves_native_relation_authority(
+    strategy, styled
+):
+    """Select the same source body for native replies and readable degradation."""
+    payload = {"body": "current", "text": "legacy"}
+    if styled:
+        payload["formatting"] = {"version": 1, "spans": []}
+    relation = _make_relation(fallback_text="earlier")
+    result = await _make_renderer().render(
+        _make_event(payload=payload, relations=(relation,)),
+        RenderingContext(strategy, "mesh-1", "0", "meshtastic"),
+    )
+    assert result.payload["text"].endswith("current" if styled else "legacy")
+    assert (result.payload.get("reply_id") == 42) is (strategy == "direct")
+    assert "emoji" not in result.payload
