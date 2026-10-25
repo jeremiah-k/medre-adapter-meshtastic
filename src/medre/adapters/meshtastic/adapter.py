@@ -1139,8 +1139,12 @@ class MeshtasticAdapter(AdapterContract):
             return None
 
         async def _send_fn(item: dict[str, Any]) -> Any:
-            payload = item.get("payload", {})
-            raw_text = payload.get("text", "")
+            payload = item.get("payload")
+            if not isinstance(payload, Mapping):
+                raise MeshtasticSendError(
+                    "Meshtastic queued payload must be a mapping", transient=False
+                )
+            raw_text = payload.get("text")
             if not isinstance(raw_text, str):
                 raise MeshtasticSendError(
                     "Meshtastic queued text must be a string", transient=False

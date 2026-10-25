@@ -776,3 +776,15 @@ async def test_reaction_key_does_not_authorize_malformed_explicit_body(
         await _make_renderer().render(
             event, RenderingContext(strategy, "mesh-1", "0", "meshtastic")
         )
+
+
+@pytest.mark.parametrize("key", [42, False, ["emoji"]])
+async def test_malformed_native_reaction_key_fails_before_rendering(key):
+    """Invalid relation values fail clearly instead of reaching string methods."""
+    event = _make_event(
+        payload={"body": "valid"}, relations=(_make_relation("reaction", key=key),)
+    )
+    with pytest.raises(ValueError, match="Reaction key must be text"):
+        await _make_renderer().render(
+            event, RenderingContext("direct", "mesh-1", "0", "meshtastic")
+        )
