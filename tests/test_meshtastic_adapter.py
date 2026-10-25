@@ -1185,3 +1185,21 @@ async def test_diagnostics_health_none_on_never_started() -> None:
     config = make_meshtastic_config(connection_type="fake")
     adapter = MeshtasticAdapter(config)
     assert adapter.diagnostics()["health"] is None
+
+
+async def test_non_string_queued_text_fails_permanently_without_native_send():
+    """Corrupted queued content is not retried or coerced onto the radio."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from medre.adapters.meshtastic.queue import QueueTerminalResult
+
+    adapter = MeshtasticAdapter(make_meshtastic_config(connection_type="fake"))
+    native_send = AsyncMock()
+    adapter._session = SimpleNamespace(connected=True, send=native_send)
+    await adapter._queue.enqueue({"text": 42}, 0)
+    result = await adapter.send_one()
+    assert isinstance(result, QueueTerminalResult)
+    assert result.outcome == "permanent_failed"
+    assert adapter.queue.pending_count == 0
+    native_send.assert_not_awaited()

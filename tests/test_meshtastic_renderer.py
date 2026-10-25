@@ -746,6 +746,33 @@ async def test_reply_text_selection_preserves_native_relation_authority(
         _make_event(payload=payload, relations=(relation,)),
         RenderingContext(strategy, "mesh-1", "0", "meshtastic"),
     )
-    assert result.payload["text"].endswith("current" if styled else "legacy")
+    selected = "current" if styled else "legacy"
+    expected = (
+        selected if strategy == "direct" else f"[replying to: earlier] {selected}"
+    )
+    assert result.payload["text"] == expected
     assert (result.payload.get("reply_id") == 42) is (strategy == "direct")
     assert "emoji" not in result.payload
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"body": 17},
+        {"body": 17, "text": "legacy"},
+        {"body": "valid", "text": 17},
+        {"body": False, "formatting": {"version": 1, "spans": []}},
+    ],
+)
+@pytest.mark.parametrize("strategy", ["direct", "fallback_text"])
+async def test_reaction_key_does_not_authorize_malformed_explicit_body(
+    payload, strategy
+):
+    """Even a valid native tapback key must not bypass malformed body checks."""
+    event = _make_event(
+        payload=payload, relations=(_make_relation("reaction", key="👍"),)
+    )
+    with pytest.raises(ValueError, match="must be text"):
+        await _make_renderer().render(
+            event, RenderingContext(strategy, "mesh-1", "0", "meshtastic")
+        )
