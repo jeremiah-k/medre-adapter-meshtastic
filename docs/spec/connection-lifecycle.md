@@ -58,3 +58,19 @@ session-wide cancellation state or reused for another attempt. SDKs without this
 parameter retain the late-client disposal path. Native operations that do not
 observe the event can still delay interpreter exit; the host does not claim to
 terminate a thread.
+
+
+## Recovery cadence and native diagnostics
+
+The default reconnect delay MUST start at ten seconds and grow exponentially to
+300 seconds, matching the long-outage recovery cadence used by MMRelay. Existing
+`reconnect_backoff_initial_seconds` and `reconnect_backoff_max_seconds` settings
+remain operator-controlled. Jitter MUST remain between the configured initial
+value and cap. Recovery MUST continue until connected or stopped.
+
+The adapter MUST retain its actionable reconnect warnings. Its declared SDK
+logging defaults suppress duplicate warning-level BLE connection tracebacks;
+ERROR records remain visible. Explicit `logging.overrides` for `meshtastic.ble`
+or `meshtastic.ble_interface` MUST take precedence, allowing DEBUG diagnostics.
+This log policy MUST NOT convert an unavailable host controller into a permanent
+adapter failure or change Bluetooth power or pairing state.

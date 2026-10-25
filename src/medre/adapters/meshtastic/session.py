@@ -1398,7 +1398,7 @@ class MeshtasticSession:
             raise
 
     def _reconnect_delay(self, attempt: int) -> float:
-        """Return capped exponential backoff with jitter without exponent overflow."""
+        """Bound jitter between the configured initial delay and maximum backoff."""
         initial = self._config.reconnect_backoff_initial_seconds
         cap = self._config.reconnect_backoff_max_seconds
         if initial >= cap:
@@ -1410,7 +1410,7 @@ class MeshtasticSession:
             exponent = min(max(0, attempt - 1), max_doublings)
             delay = min(initial * (2.0**exponent), cap)
         jitter = delay * _BACKOFF_JITTER_FRACTION
-        return min(cap, max(0.0, delay + random.uniform(-jitter, jitter)))
+        return min(cap, max(initial, delay + random.uniform(-jitter, jitter)))
 
     async def _reconnect_loop(self, pending: asyncio.Task[Any] | None = None) -> None:
         """Adopt an in-flight startup attempt, then retry with capped backoff.
