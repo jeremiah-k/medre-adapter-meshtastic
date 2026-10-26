@@ -31,11 +31,11 @@ Selection is via the rendering pipeline's platform registry: when the
 pipeline populates the adapter's platform as ``"meshtastic"``, the renderer
 matches on that platform string directly.
 
-Text messages, replies, and reactions are supported.  UTF-8 byte-budget
-truncation is applied after final radio text rendering (including prefix,
-reply, and reaction formatting).  Multi-byte UTF-8 codepoints are never
-split.  Truncation metadata and the ``RenderingResult.truncated`` flag
-report whether the text was trimmed.
+Text messages, replies, and reactions use bounded single-packet rendering by
+default. Explicit ``max_text_parts > 1`` opts long ordinary messages into the
+shared exact radio planner. Native tapbacks and descriptive reactions remain
+single packets. Prefix, numbering and UTF-8 budgets apply independently to
+every planned packet; exceeding the part cap rejects the complete plan.
 
 **Cross-platform reaction rendering (MMRelay-compatible).**
 When a reaction originates outside the configured Meshtastic instances
@@ -70,6 +70,7 @@ from medre.core.rendering.attribution import (
     build_relay_attribution,
     format_relay_prefix,
 )
+from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
@@ -394,6 +395,9 @@ class MeshtasticRenderer:
             else adapter_config.max_text_bytes
         )
 
+        if adapter_config.max_text_parts > 1:
+            max_text_bytes = min(max_text_bytes, adapter_config.max_text_bytes)
+
         # Resolve channel index: adapter config default, overridden only by
         # a valid numeric target_channel.  Invalid/non-numeric values keep
         # the adapter's default_channel (do not silently force 0).
@@ -420,6 +424,7 @@ class MeshtasticRenderer:
                 effective_origin_label = getattr(src_attr_cfg, "origin_label", None)
 
         # -- Structured reply / reaction rendering ----------------------------
+        wire_prefix = ""
         is_structured_reaction = False
         is_descriptive_reaction = False
         prefix_result: PrefixFormatterResult = PrefixFormatterResult(
@@ -538,13 +543,34 @@ class MeshtasticRenderer:
                 and prefix_result.formatting_error.startswith("formatting_exception:")
             )
             if prefix_result.rendered_prefix and not is_prefix_exception:
-                content["text"] = f"{prefix_result.rendered_prefix}{content['text']}"
+                wire_prefix = prefix_result.rendered_prefix
+                content["text"] = f"{wire_prefix}{content['text']}"
 
         # -- UTF-8 byte-budget truncation after final rendering ------
         final_text = str(content.get("text", ""))
-        truncated_text, was_truncated, original_bytes, rendered_bytes = (
-            self._truncate_utf8_bytes(final_text, max_text_bytes)
-        )
+        radio_plan = None
+        if (
+            adapter_config.max_text_parts > 1
+            and max_text_bytes > 0
+            and event.event_kind == "message.created"
+            and not is_structured_reaction
+            and not is_descriptive_reaction
+            and len(final_text.encode("utf-8")) > max_text_bytes
+        ):
+            radio_plan = plan_radio_text(
+                final_text[len(wire_prefix) :],
+                prefix=wire_prefix,
+                max_text_bytes=max_text_bytes,
+                max_parts=adapter_config.max_text_parts,
+            )
+            truncated_text = radio_plan.parts[0].wire_text
+            was_truncated = False
+            original_bytes = len(final_text.encode("utf-8"))
+            rendered_bytes = sum(part.wire_bytes for part in radio_plan.parts)
+        else:
+            truncated_text, was_truncated, original_bytes, rendered_bytes = (
+                self._truncate_utf8_bytes(final_text, max_text_bytes)
+            )
         content["text"] = truncated_text
 
         metadata: dict[str, object] = {
@@ -556,6 +582,13 @@ class MeshtasticRenderer:
             "max_text_bytes": max_text_bytes,
             "truncated": was_truncated,
         }
+        if radio_plan is not None:
+            metadata["radio_part_count"] = len(radio_plan.parts)
+            metadata["radio_plan_fingerprint"] = radio_plan.fingerprint
+            metadata["rendered_text_chars"] = sum(
+                len(part.wire_text) for part in radio_plan.parts
+            )
+            metadata["rendered_length"] = metadata["rendered_text_chars"]
         formatted_prefix = prefix_result.rendered_prefix
         if prefix != "":
             # Normalized keys (consistent across all renderers)
@@ -577,6 +610,7 @@ class MeshtasticRenderer:
             payload=content,
             metadata=metadata,
             truncated=was_truncated,
+            radio_plan=radio_plan,
             fallback_applied="strategy_fallback_text" if is_fallback else None,
         )
 

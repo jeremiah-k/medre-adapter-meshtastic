@@ -20,6 +20,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from collections.abc import Awaitable
 from typing import Any, cast
 
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC
@@ -545,8 +546,15 @@ class MeshtasticSession:
     async def send(
         self,
         packet_dict: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        """Send a text packet via the Meshtastic client with bounded retry.
+        *,
+        before_native_send: Callable[[], Awaitable[None]] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> object | None:
+        """Send via the client; guarded packets permit exactly one native invocation.
+
+        Guarded callbacks run after queue pacing. Cancellation and exact client
+        generation are checked around the grant and inside the SDK worker.
+        Ordinary packets retain their existing bounded retry policy.
 
         When *packet_dict* contains a ``reply_id`` key, the method uses
         the protobuf ``_sendPacket`` path to build a structured
@@ -563,17 +571,31 @@ class MeshtasticSession:
             Dict with at least ``text`` and ``channel_index`` keys.
             May include ``reply_id`` (int) and ``emoji`` (int) for
             structured reply / reaction sends.
+        before_native_send:
+            Runtime-only one-use core grant. Its presence disables SDK retries.
+        is_cancelled:
+            Thread-safe cancellation predicate for the guarded packet owner;
+            checked again in the worker immediately before native use.
 
         Returns
         -------
-        dict | None
-            Result from the client's send method, or ``None`` in fake mode.
+        object | None
+            Opaque SDK packet object or mapping, normalized by the queue owner;
+            ``None`` in fake mode. Guarded packets require a retained native ID.
 
         Raises
         ------
         MeshtasticSendError
             On permanent send failure or after max transient retries.
         """
+        if before_native_send is not None:
+            return await self._send_guarded(
+                packet_dict, before_native_send, is_cancelled
+            )
+        if is_cancelled is not None:
+            raise MeshtasticSendError(
+                "cancellation fence requires a guarded send", transient=False
+            )
         if self._client is None:
             # Fake mode — no real send
             return None
@@ -596,7 +618,7 @@ class MeshtasticSession:
                         text,
                         channelIndex=channel_index,
                     )
-                return cast(dict[str, Any], result)
+                return cast(object, result)
             except asyncio.CancelledError:
                 raise
             except MeshtasticSendError as exc:
@@ -674,12 +696,83 @@ class MeshtasticSession:
             f"Send failed after {_MAX_SEND_RETRIES} attempts: {last_exc}"
         ) from last_exc
 
+    async def _send_guarded(
+        self,
+        packet: dict[str, Any],
+        before_native_send: Callable[[], Awaitable[None]],
+        is_cancelled: Callable[[], bool] | None,
+    ) -> object | None:
+        """Consume one paced grant and invoke only its captured native client once.
+
+        Recheck cancellation and client generation in the SDK worker as well as
+        around the SQLite await. A consumed grant never enters native retry.
+        """
+        text = packet.get("text")
+        if not isinstance(text, str):
+            raise MeshtasticSendError("guarded text must be a string", transient=False)
+        with self._client_state_lock:
+            client, generation = self._client, self._connection_generation
+
+        def check_current() -> None:
+            """Fence a cancelled waiter or retired SDK before the native invocation."""
+            if is_cancelled is not None and is_cancelled():
+                raise MeshtasticSendError("guarded send cancelled", transient=False)
+            if not self.connected:
+                raise MeshtasticSendError(
+                    "session unavailable before guarded send", transient=True
+                )
+            with self._client_state_lock:
+                if (
+                    self._stop_requested
+                    or self._client is not client
+                    or self._connection_generation != generation
+                ):
+                    raise MeshtasticSendError(
+                        "guarded send client is no longer current", transient=True
+                    )
+
+        check_current()
+        await before_native_send()
+        try:
+            check_current()
+            if packet.get("reply_id") is not None:
+                return cast(
+                    object,
+                    await self._send_structured(
+                        text,
+                        packet.get("channel_index", 0),
+                        packet["reply_id"],
+                        packet.get("emoji"),
+                        client=client,
+                        before_native_call=check_current,
+                    ),
+                )
+
+            def native_send() -> Any:
+                """The worker checks its exact owner just before entering the SDK."""
+                check_current()
+                return client.sendText(
+                    text, channelIndex=packet.get("channel_index", 0)
+                )
+
+            return cast(object, await asyncio.to_thread(native_send))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            raise MeshtasticSendError(
+                "guarded native send did not produce a confirmed handoff",
+                transient=False,
+            ) from exc
+
     async def _send_structured(
         self,
         text: str,
         channel_index: int,
         reply_id: int,
         emoji: int | None,
+        *,
+        client: Any = None,
+        before_native_call: Callable[[], None] | None = None,
     ) -> Any:
         """Send a structured message via protobuf ``_sendPacket``.
 
@@ -707,7 +800,8 @@ class MeshtasticSession:
                 transient=False,
             ) from exc
 
-        _send_packet = getattr(self._client, "_sendPacket", None)
+        client = self._client if client is None else client
+        _send_packet = getattr(client, "_sendPacket", None)
         if _send_packet is None:
             raise MeshtasticSendError(
                 "client does not expose _sendPacket for structured send",
@@ -755,7 +849,7 @@ class MeshtasticSession:
         mesh_packet = mesh_pb2.MeshPacket()
         mesh_packet.decoded.CopyFrom(data)
         mesh_packet.channel = channel_index
-        generate_packet_id = getattr(self._client, "_generatePacketId", None)
+        generate_packet_id = getattr(client, "_generatePacketId", None)
         if callable(generate_packet_id):
             try:
                 mesh_packet.id = cast(int, generate_packet_id())
@@ -777,11 +871,16 @@ class MeshtasticSession:
         except Exception:
             pass
 
-        result = await asyncio.to_thread(
-            _send_packet,
-            mesh_packet,
-            **send_kwargs,
-        )
+        if before_native_call is None:
+            result = await asyncio.to_thread(_send_packet, mesh_packet, **send_kwargs)
+        else:
+
+            def guarded_native() -> Any:
+                """Refuse a stale SDK or cancelled waiter before structured native use."""
+                before_native_call()
+                return _send_packet(mesh_packet, **send_kwargs)
+
+            result = await asyncio.to_thread(guarded_native)
         if result is not None:
             return result
         # _sendPacket may return None even after successfully sending

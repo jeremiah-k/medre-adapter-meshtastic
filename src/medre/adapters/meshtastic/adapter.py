@@ -108,6 +108,7 @@ from medre.core.contracts.adapter import (
     AdapterRole,
     AdapterSendError,
 )
+from medre.adapters.meshtastic.guarded import GuardedQueuedSend
 from medre.core.contracts.delivery import (
     AdapterHandoffResult,
     DeferredHandoffCompleted,
@@ -147,6 +148,7 @@ class MeshtasticAdapter(AdapterContract):
 
     adapter_id: str
     platform: str = "meshtastic"
+    supports_radio_multipart: bool = True
     role: AdapterRole = AdapterRole.TRANSPORT
 
     def __init__(self, config: MeshtasticConfig) -> None:
@@ -181,6 +183,7 @@ class MeshtasticAdapter(AdapterContract):
             warning_threshold_pct=config.queue_warning_threshold_pct,
             critical_threshold_pct=config.queue_critical_threshold_pct,
         )
+        self._guarded_sends: set[GuardedQueuedSend] = set()
         self.ctx: AdapterContext | None = None
         self._started: bool = False
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -317,6 +320,9 @@ class MeshtasticAdapter(AdapterContract):
         # Clear cached health at lifecycle boundary.
         self._last_health = None
 
+        for guarded in tuple(self._guarded_sends):
+            guarded.fail("adapter stopped before guarded queue handoff completed")
+
         # Cancel the queue drain background task.
         if self._drain_task is not None:
             self._drain_task.cancel()
@@ -380,7 +386,12 @@ class MeshtasticAdapter(AdapterContract):
     # -- Outbound delivery --------------------------------------------------
 
     async def deliver(self, result: RenderingResult) -> AdapterHandoffResult:
-        """Enqueue a pre-rendered payload for paced delivery.
+        """Deliver through the paced queue, retaining core ownership for planned packets.
+
+        A core-owned ``before_native_send`` callback selects synchronous packet
+        handoff: this method waits for the SDK result while the parent remains
+        in progress. Individual planned packets emit no deferred parent feedback.
+        Ordinary messages retain their existing deferred admission contract.
 
         The *result.payload* is expected to be a Meshtastic-ready content
         dict already rendered by
@@ -407,7 +418,8 @@ class MeshtasticAdapter(AdapterContract):
         Returns
         -------
         AdapterHandoffResult
-            A deferred hand-off result after local queue admission.
+            Local queue admission for ordinary messages, or synchronous native
+            handoff for a guarded planned packet.
 
         Raises
         ------
@@ -425,6 +437,11 @@ class MeshtasticAdapter(AdapterContract):
                 f"MeshtasticAdapter.deliver() accepts RenderingResult only, "
                 f"got {type(result).__name__}. Use simulate_inbound() for "
                 f"the inbound path."
+            )
+
+        if result.radio_plan is not None:
+            raise AdapterPermanentError(
+                "Meshtastic radio plans require core-owned packet dispatch"
             )
 
         # Real transports require an active startup lifecycle. Fake mode has no
@@ -446,7 +463,9 @@ class MeshtasticAdapter(AdapterContract):
             raise AdapterPermanentError(
                 "deferred Meshtastic delivery requires immutable " "attempt_provenance"
             )
-        if self.ctx is None or self.ctx.report_delivery_feedback is None:
+        if result.before_native_send is None and (
+            self.ctx is None or self.ctx.report_delivery_feedback is None
+        ):
             raise AdapterPermanentError(
                 "deferred Meshtastic delivery requires an installed "
                 "report_delivery_feedback sink"
@@ -456,6 +475,36 @@ class MeshtasticAdapter(AdapterContract):
         channel_index = payload.get("channel_index", self._config.default_channel)
         if not isinstance(channel_index, int):
             channel_index = self._config.default_channel
+
+        if result.before_native_send is not None:
+            raw_channel = payload.get("channel_index")
+            if type(raw_channel) is not int or raw_channel < 0:
+                raise AdapterPermanentError(
+                    "guarded queue channel must be a nonnegative integer"
+                )
+            session = self._session
+            if session is None or not session.connected:
+                raise AdapterSendError(
+                    "guarded queue handoff requires a connected session", transient=True
+                )
+            guarded = GuardedQueuedSend(result.before_native_send)
+            self._guarded_sends.add(guarded)
+            try:
+                await self._queue.enqueue(
+                    payload,
+                    channel_index,
+                    attempt_provenance=result.attempt_provenance,
+                    guarded_send=guarded,
+                )
+                return await guarded.completion
+            except MeshtasticSendError as exc:
+                if exc.transient:
+                    raise AdapterSendError(str(exc), transient=True) from exc
+                raise AdapterPermanentError(str(exc)) from exc
+            finally:
+                guarded.close()
+                self._queue.discard_guarded(guarded)
+                self._guarded_sends.discard(guarded)
 
         try:
             await self._queue.enqueue(
@@ -1136,6 +1185,10 @@ class MeshtasticAdapter(AdapterContract):
         """
         session = self._session
         if session is None or not session.connected:
+            for guarded in tuple(self._guarded_sends):
+                guarded.fail(
+                    "session disconnected before guarded handoff", transient=True
+                )
             return None
 
         async def _send_fn(item: dict[str, Any]) -> Any:
@@ -1158,9 +1211,54 @@ class MeshtasticAdapter(AdapterContract):
                 send_dict["reply_id"] = payload["reply_id"]
             if "emoji" in payload:
                 send_dict["emoji"] = payload["emoji"]
+            guarded = item.get("guarded_send")
+            if "guarded_send" in item and not isinstance(guarded, GuardedQueuedSend):
+                raise MeshtasticSendError(
+                    "malformed guarded queue ownership", transient=False
+                )
+            if isinstance(guarded, GuardedQueuedSend):
+
+                async def grant_current() -> None:
+                    """Do not lend a core grant to an adapter session replaced while waiting."""
+                    if not self._started or self._session is not session:
+                        raise AdapterPermanentError(
+                            "guarded queue owner is no longer active"
+                        )
+                    await guarded.grant()
+                    if not self._started or self._session is not session:
+                        raise AdapterPermanentError(
+                            "guarded queue owner changed during grant"
+                        )
+
+                try:
+                    return await session.send(
+                        send_dict,
+                        before_native_send=grant_current,
+                        is_cancelled=lambda: (
+                            guarded.cancelled.is_set()
+                            or not self._started
+                            or self._session is not session
+                        ),
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    raise MeshtasticSendError(
+                        "guarded queued send did not complete",
+                        transient=not guarded.entered
+                        and getattr(exc, "transient", False),
+                    ) from exc
             return await session.send(send_dict)
 
-        return await self._queue.process_one(send_fn=_send_fn)
+        result = await self._queue.process_one(send_fn=_send_fn)
+        if result is not None and isinstance(
+            (completed_guard := result.item.get("guarded_send")), GuardedQueuedSend
+        ):
+            if isinstance(result, QueueDeliveryResult):
+                completed_guard.complete(result.handoff)
+            else:
+                completed_guard.fail(result.error or "guarded queue handoff failed")
+        return result
 
     async def _process_queue(self) -> None:
         """Background task that continuously drains the outbound queue.
@@ -1194,6 +1292,9 @@ class MeshtasticAdapter(AdapterContract):
                     if result is None:
                         await asyncio.sleep(0.1)
                         continue
+
+                    if isinstance(result.item.get("guarded_send"), GuardedQueuedSend):
+                        continue  # Its waiting core dispatch owns parent completion.
 
                     if isinstance(result, QueueTerminalResult):
                         # Shield feedback so stop() cancellation cannot abort
@@ -1271,6 +1372,9 @@ class MeshtasticAdapter(AdapterContract):
         violation and
         likewise fails closed without crashing the queue/shutdown task.
         """
+        if isinstance(item.get("guarded_send"), GuardedQueuedSend):
+            return None  # Synchronous packet facts must not become deferred parent feedback.
+
         provenance = item.get("attempt_provenance")
         outbox_id = item.get("outbox_id")
         mismatch: str | None = None
@@ -1346,6 +1450,8 @@ class MeshtasticAdapter(AdapterContract):
     async def _report_cancelled_and_drain(self) -> None:
         """Report in-flight cancellation and abandon orphaned deferred work."""
         callback = self.ctx.report_delivery_feedback if self.ctx is not None else None
+        for guarded in tuple(self._guarded_sends):
+            guarded.fail("queue owner stopped before guarded handoff completed")
 
         cancelled_item = self._queue.pop_cancelled_item()
         if cancelled_item is not None:
