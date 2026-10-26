@@ -77,6 +77,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Literal
 
 from medre.adapters.meshtastic.errors import MeshtasticSendError
+from medre.adapters.meshtastic.guarded import GuardedQueuedSend
 from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_snapshot import json_safe
 from medre.core.contracts.delivery import AdapterHandoffResult
@@ -212,6 +213,7 @@ class MeshtasticOutboundQueue:
             raise ValueError(
                 "warning_threshold_pct must be less than critical_threshold_pct"
             )
+        self._process_lock = asyncio.Lock()
         self._delay = delay_between_messages
         self._max_queue_size = max_queue_size
         self._max_attempts = max_attempts
@@ -263,6 +265,7 @@ class MeshtasticOutboundQueue:
         outbox_id: str | None = None,
         attempt_number: int | None = None,
         attempt_provenance: DeliveryAttemptProvenance | None = None,
+        guarded_send: GuardedQueuedSend | None = None,
     ) -> None:
         """Enqueue a payload for delivery.
 
@@ -304,12 +307,17 @@ class MeshtasticOutboundQueue:
             Immutable attempt identity and dispatch provenance. Stored only in
             the queue item and echoed on asynchronous delivery feedback; never
             serialized into the radio-facing payload.
+        guarded_send:
+            Optional runtime-only waiter for a planned packet. Core retains its
+            current claim until native handoff; this object is never wire data.
 
         Raises
         ------
         MeshtasticSendError
             When the queue is at capacity (``transient=True``).
         """
+        if guarded_send is not None and not isinstance(guarded_send, GuardedQueuedSend):
+            raise TypeError("guarded_send must be GuardedQueuedSend or None")
         if attempt_provenance is None and outbox_id is not None:
             raise ValueError(
                 "outbox-backed queue items require immutable attempt_provenance"
@@ -354,18 +362,19 @@ class MeshtasticOutboundQueue:
                 f"enqueue rejected ({len(self._queue)}/{self._max_queue_size})",
                 transient=True,
             )
-        self._queue.append(
-            {
-                "payload": dict(payload),
-                "channel_index": channel_index,
-                "event_id": event_id,
-                "delivery_plan_id": delivery_plan_id,
-                "outbox_id": outbox_id,
-                "attempt_number": attempt_number,
-                "attempt_provenance": attempt_provenance,
-                "_attempt": 1,  # internal retry counter; not sent to radio
-            }
-        )
+        item = {
+            "payload": dict(payload),
+            "channel_index": channel_index,
+            "event_id": event_id,
+            "delivery_plan_id": delivery_plan_id,
+            "outbox_id": outbox_id,
+            "attempt_number": attempt_number,
+            "attempt_provenance": attempt_provenance,
+            "_attempt": 1,  # internal retry counter; not sent to radio
+        }
+        if guarded_send is not None:
+            item["guarded_send"] = guarded_send
+        self._queue.append(item)
         self._total_enqueued += 1
         self._peak_depth = max(self._peak_depth, len(self._queue))
         self._refresh_pressure_state()
@@ -386,7 +395,34 @@ class MeshtasticOutboundQueue:
         self._refresh_pressure_state()
         return item
 
+    def discard_guarded(self, guarded: GuardedQueuedSend) -> None:
+        """Remove a cancelled pending packet without disturbing ordinary queue order."""
+        for item in self._queue:
+            if item.get("guarded_send") is guarded:
+                self._queue.remove(item)
+                self._total_dequeued += 1
+                self._refresh_pressure_state()
+                return
+
     async def process_one(
+        self,
+        send_fn: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
+    ) -> QueueDeliveryResult | QueueTerminalResult | None:
+        """Serialize dequeue, pacing and native handoff across all queue consumers."""
+        async with self._process_lock:
+            try:
+                return await self._process_one_owned(send_fn)
+            except (asyncio.CancelledError, Exception):
+                item = self._last_cancelled_item
+                if item is not None and isinstance(
+                    (guarded := item.get("guarded_send")), GuardedQueuedSend
+                ):
+                    guarded.fail(
+                        "guarded queue owner interrupted before handoff completion"
+                    )
+                raise
+
+    async def _process_one_owned(
         self,
         send_fn: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
     ) -> QueueDeliveryResult | QueueTerminalResult | None:
@@ -441,7 +477,9 @@ class MeshtasticOutboundQueue:
             return None
 
         if send_fn is None:
-            # Fake mode: no send, no pacing sleep.
+            # Fake mode: no send, no pacing sleep. A guarded waiter needs an actual owner.
+            if isinstance((guarded := item.get("guarded_send")), GuardedQueuedSend):
+                guarded.fail("guarded packet has no native send owner")
             return None
 
         # Capture the dequeued item as the potential cancelled item
@@ -450,8 +488,8 @@ class MeshtasticOutboundQueue:
         self._last_cancelled_item = item
 
         # Apply pacing delay based on time since last send attempt.
-        # Pacing is per-send-ATTEMPT, not per-dequeue: the timestamp is
-        # recorded before send_fn so that transient retries also respect
+        # Pacing is per queued transport invocation, not per-dequeue: the
+        # timestamp is recorded before and after send_fn so retries respect
         # the minimum inter-message gap.  A rapid burst of messages from
         # the queue will each wait for the remaining delay before their
         # send attempt, ensuring the radio is never flooded faster than
@@ -512,10 +550,13 @@ class MeshtasticOutboundQueue:
             self._last_cancelled_item = None
             terminal = self._handle_transient_failure(item, error=str(exc))
             return terminal
+        finally:
+            # Grant/SDK waits can outlast the original delay. Measure from the
+            # completed invocation so its successor cannot immediately burst.
+            self._last_send_time = time.monotonic()
 
-        self._total_sent += 1
-        # Send succeeded — clear the pre-emptive cancelled-item capture.
-        self._last_cancelled_item = None
+        # Keep the in-flight capture until result normalization succeeds so an
+        # invalid SDK result cannot leave its guarded waiter unresolved.
 
         # Extract native packet ID from the send result.
         native_id = _extract_packet_id(send_result)
@@ -539,6 +580,8 @@ class MeshtasticOutboundQueue:
             metadata=metadata_dict,
         )
 
+        self._total_sent += 1
+        self._last_cancelled_item = None
         return QueueDeliveryResult(item=item, handoff=handoff)
 
     def _handle_transient_failure(

@@ -74,6 +74,10 @@ class MeshtasticConfig:
         allows downstream consumers expecting mmrelay's ``meshtastic_*``
         fields to interoperate with medre-relayed messages.  Default:
         ``False``.
+    max_text_parts:
+        Explicit long-message opt-in from 2 through 128; 1 keeps single-packet
+        clipping. Guarded packet waiters retain core ownership through the
+        existing paced queue. This does not promise remote RF receipt.
     max_text_bytes:
         Maximum UTF-8 byte budget for the final radio text after
         rendering.  Applied after all prefix, reply, and reaction
@@ -170,6 +174,7 @@ class MeshtasticConfig:
     chat_portnums: frozenset[str] = field(default_factory=frozenset)
     disabled_portnums: frozenset[str] = field(default_factory=frozenset)
     detection_sensor_relay: bool = False
+    max_text_parts: int = 1
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -206,6 +211,10 @@ class MeshtasticConfig:
         if self.connection_type == "ble" and not self.ble_address:
             raise MeshtasticConfigError(
                 "ble_address is required when connection_type is 'ble'"
+            )
+        if type(self.max_text_parts) is not int or not 1 <= self.max_text_parts <= 128:
+            raise MeshtasticConfigError(
+                "max_text_parts must be an integer between 1 and 128"
             )
         if isinstance(self.max_text_bytes, bool):
             raise MeshtasticConfigError("max_text_bytes must be an int, got bool")
