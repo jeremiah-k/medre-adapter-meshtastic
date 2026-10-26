@@ -425,6 +425,45 @@ async def test_result_normalization_failure_resolves_waiter_without_resending(
     assert native.call_count == 1
     snapshot = await temp_storage.get_radio_attempt_snapshot(result.outbox_id, 1)
     assert snapshot["parts"][0]["state"] == "unknown"
+    assert adapter._queue.pop_cancelled_item() is None
+    assert not adapter._guarded_sends
+
+
+@pytest.mark.parametrize("guarded_packet", [False, True])
+async def test_normalization_failure_does_not_cancel_sent_or_abandon_pending_work(
+    monkeypatch, guarded_packet
+):
+    """A returned SDK call cannot poison shutdown's in-flight cancellation capture."""
+    from medre.adapters.meshtastic.guarded import GuardedQueuedSend
+
+    adapter, _ = connected(Mock())
+    guard = GuardedQueuedSend(AsyncMock()) if guarded_packet else None
+    await adapter._queue.enqueue({"text": "sent"}, 0, guarded_send=guard)
+    await adapter._queue.enqueue({"text": "pending"}, 0)
+
+    def broken_snapshot(value):
+        raise ValueError("injected invalid SDK metadata")
+
+    monkeypatch.setattr(
+        "medre.adapters.meshtastic.queue._packet_snapshot", broken_snapshot
+    )
+
+    async def native(item):
+        if guard is not None:
+            await guard.grant()
+        return {"id": 101}
+
+    with pytest.raises(ValueError, match="invalid SDK metadata"):
+        await adapter._queue.process_one(native)
+    if guard is not None:
+        with pytest.raises(AdapterPermanentError, match="normalization failed"):
+            await guard.completion
+        guard.close()
+    await adapter._report_cancelled_and_drain()
+    adapter.ctx.report_delivery_feedback.assert_not_awaited()
+    assert adapter._queue.total_sent == 0
+    assert adapter._queue.pending_count == 1
+    assert (await adapter._queue.dequeue())["payload"]["text"] == "pending"
 
 
 async def test_queue_capacity_failure_preserves_ordinary_work_without_a_grant(
@@ -599,3 +638,28 @@ async def test_native_uint32_zero_id_is_retained_without_fabrication(
     await delivery
     snapshot = await temp_storage.get_radio_attempt_snapshot(result.outbox_id, 1)
     assert json.loads(snapshot["parts"][0]["handoff_id"])["native_message_id"] == "0"
+
+
+async def test_guarded_mapping_packet_id_zero_wins_over_secondary_id() -> None:
+    """SDK packet ID zero is authoritative even when an alias differs."""
+    from medre.adapters.meshtastic.guarded import GuardedQueuedSend
+
+    queue = MeshtasticOutboundQueue(delay_between_messages=0)
+    guard = GuardedQueuedSend(AsyncMock())
+    await queue.enqueue({"text": "zero"}, 0, guarded_send=guard)
+    packet = await queue.process_one(
+        lambda _item: asyncio.sleep(0, result={"packet_id": 0, "id": 123})
+    )
+    assert packet is not None and packet.handoff.native_message_id == "0"
+    guard.complete(packet.handoff)
+    assert (await guard.completion).native_message_id == "0"
+    guard.close()
+
+
+def test_mapping_packet_id_precedence() -> None:
+    """The queue preserves zero when the SDK reports only packet_id."""
+    from medre.adapters.meshtastic.queue import _extract_packet_id
+
+    assert _extract_packet_id({"packet_id": 0, "id": 456}) == "0"
+    assert _extract_packet_id({"packet_id": 0}) == "0"
+    assert _extract_packet_id({"packet_id": None, "id": 456}) == "456"

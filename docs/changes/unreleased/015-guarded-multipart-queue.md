@@ -15,3 +15,11 @@ preventing slow storage/SDK work from consuming the next transmission's gap.
 Partially accepted messages remain held after restart; independent recipient ACK
 aggregation and physical qualification remain separate. Package version stays
 0.1.0 and no canonical storage shape changes are introduced.
+
+Queued mapping handoffs retain an explicit native `packet_id` of zero even
+when a second `id` alias is present; the secondary ID cannot replace the
+packet's authoritative identity.
+
+An SDK result conversion failure settles its guarded waiter and clears only
+that completed invocation's cancellation capture, preserving unrelated queued
+work and avoiding false cancellation feedback during shutdown.

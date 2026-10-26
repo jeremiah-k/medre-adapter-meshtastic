@@ -555,30 +555,35 @@ class MeshtasticOutboundQueue:
             # completed invocation so its successor cannot immediately burst.
             self._last_send_time = time.monotonic()
 
-        # Keep the in-flight capture until result normalization succeeds so an
-        # invalid SDK result cannot leave its guarded waiter unresolved.
+        # The SDK has returned. Conversion failure is uncertain evidence, not
+        # cancellation of an in-flight native call; keep unrelated work queued.
+        try:
+            # Extract native packet ID from the send result.
+            native_id = _extract_packet_id(send_result)
+            channel_index = item.get("channel_index", 0)
 
-        # Extract native packet ID from the send result.
-        native_id = _extract_packet_id(send_result)
-        channel_index = item.get("channel_index", 0)
-
-        # Build packet snapshot metadata only when there's a real packet
-        # to record.  A None result (e.g. fake-mode sender) carries no
-        # identifying information and must not pollute delivery metadata
-        # with a placeholder schema-version envelope.
-        snapshot = _packet_snapshot(send_result)
-        metadata_dict: dict[str, object] = {}
-        if snapshot:
-            metadata_dict["meshtastic"] = {
-                **snapshot,
-                "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION,
-            }
-        handoff = AdapterHandoffResult(
-            native_message_id=native_id,
-            native_channel_id=str(channel_index),
-            confirmation_level="local_transport",
-            metadata=metadata_dict,
-        )
+            # Build packet snapshot metadata only when there's a real packet
+            # to record.  A None result (e.g. fake-mode sender) carries no
+            # identifying information and must not pollute delivery metadata
+            # with a placeholder schema-version envelope.
+            snapshot = _packet_snapshot(send_result)
+            metadata_dict: dict[str, object] = {}
+            if snapshot:
+                metadata_dict["meshtastic"] = {
+                    **snapshot,
+                    "schema_version": MESHTASTIC_NATIVE_SCHEMA_VERSION,
+                }
+            handoff = AdapterHandoffResult(
+                native_message_id=native_id,
+                native_channel_id=str(channel_index),
+                confirmation_level="local_transport",
+                metadata=metadata_dict,
+            )
+        except Exception:
+            if isinstance((guarded := item.get("guarded_send")), GuardedQueuedSend):
+                guarded.fail("native handoff result normalization failed")
+            self._last_cancelled_item = None
+            raise
 
         self._total_sent += 1
         self._last_cancelled_item = None
@@ -833,7 +838,12 @@ def _extract_packet_id(result: Any) -> str | None:
         return None
     # --- Top-level ID ---------------------------------------------------
     if isinstance(result, dict):
-        pid = result.get("packet_id") or result.get("id")
+        # Packet ID zero is valid. Do not let truth-value fallback replace an
+        # explicit zero with a different ``id`` from the same SDK mapping.
+        pid = result.get("packet_id")
+        if pid is not None:
+            return str(pid)
+        pid = result.get("id")
         if pid is not None:
             return str(pid)
     else:

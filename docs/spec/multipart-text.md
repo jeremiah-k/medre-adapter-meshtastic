@@ -43,7 +43,10 @@ No individual native packet ID or ACK may complete the multipart parent.
 Pending cancellation MUST remove its packet from the queue and release waiter
 ownership. Shutdown, disconnection and interrupted queue/result processing MUST
 settle guarded waiters; ordinary pending work MUST retain its existing lifecycle
-policy. A cancelled SDK worker that has not begun native use MUST be fenced.
+policy. If the SDK returns but handoff normalization fails, the waiter MUST
+fail without retry and that already-invoked item MUST NOT remain recorded as an
+in-flight cancellation. Unrelated queued work MUST remain available to its
+ordinary owner. A cancelled SDK worker that has not begun native use MUST be fenced.
 A native operation already executing remains uncertain: cancelling a coroutine
 MUST NOT be described as terminating that native thread.
 
