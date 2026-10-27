@@ -1,9 +1,6 @@
 """Declarative registration for the separately distributed adapter."""
 
-from typing import Any
-
-from medre import adapter_spec as registration
-from medre.adapter_spec import AdapterSpec, SymbolRef
+from medre.adapter_spec import AdapterSpec, NativeSetupField, SymbolRef
 
 
 def adapter_spec() -> AdapterSpec:
@@ -13,12 +10,8 @@ def adapter_spec() -> AdapterSpec:
     tracebacks duplicate that summary during expected BLE outages; explicit
     operator logger overrides still expose them for diagnosis.
     """
-    # Prompt metadata is optional; discovery works with released core versions
-    # that do not expose the authoring form contract.
-    native_setup: dict[str, Any] = {}
-    NativeSetupField = getattr(registration, "NativeSetupField", None)
-    if NativeSetupField is not None:
-        native_setup["native_setup_fields"] = (
+    return AdapterSpec(
+        native_setup_fields=(
             NativeSetupField(
                 "connection_type",
                 "Radio connection type",
@@ -44,9 +37,10 @@ def adapter_spec() -> AdapterSpec:
                 "BLE device address",
                 active_when=("connection_type", "ble"),
             ),
-        )
-    return AdapterSpec(
-        **native_setup,
+        ),
+        stopped_state_declaration=SymbolRef(
+            "medre.adapters.meshtastic.stopped_declaration", "declaration"
+        ),
         sample_config=SymbolRef("medre.adapters.meshtastic.sample", "sample_config"),
         transport="meshtastic",
         config=SymbolRef("medre.config.adapters.meshtastic", "MeshtasticConfig"),
