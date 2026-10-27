@@ -295,6 +295,51 @@ class TestMeshtasticSessionUnit:
         assert call_count["n"] == 2
         assert session.transient_delivery_failures == 1
 
+    async def test_send_with_provenance_names_the_accepting_generation(self) -> None:
+        """The returned generation is the one that owned the accepting attempt."""
+        config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        session._connection_generation = 7
+
+        call_count = {"n": 0}
+
+        class FakeClient:
+            def sendText(self, text, channelIndex=0):
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    # The reconnect monitor replaces the client generation
+                    # between the failed and the accepting attempt.
+                    session._connection_generation += 1
+                    raise ConnectionError("transient")
+                return type("Packet", (), {"id": 42})()
+
+        session._client = FakeClient()
+        attempt = await session.send_with_provenance(
+            {"text": "hello", "channel_index": 0}
+        )
+        assert attempt.native is not None
+        assert attempt.connection_generation == 8
+        # The plain send path still returns only the native result.
+        assert (await session.send({"text": "hello", "channel_index": 0})) is not None
+
+    async def test_send_with_provenance_fake_mode_returns_current_generation(
+        self,
+    ) -> None:
+        """Fake mode carries a None native result under the live generation."""
+        config = make_meshtastic_config(connection_type="fake")
+        session = MeshtasticSession(
+            config=config, adapter_id="mesh-1", platform="meshtastic"
+        )
+        await session.start()
+        attempt = await session.send_with_provenance(
+            {"text": "hello", "channel_index": 0}
+        )
+        assert attempt.native is None
+        assert attempt.connection_generation == session.connection_generation
+        await session.stop()
+
     async def test_session_send_permanent_failure_raises(self) -> None:
         """Session send raises immediately on non-transient errors."""
         config = make_meshtastic_config(connection_type="tcp", host="1.2.3.4")

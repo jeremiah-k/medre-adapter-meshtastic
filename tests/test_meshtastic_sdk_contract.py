@@ -152,3 +152,23 @@ def test_liveness_probe_sdk_surfaces_are_frozen() -> None:
         drop_handler(0x1234)
     finally:
         interface.close()
+
+
+@pytest.mark.parametrize("transport", ["tcp", "serial", "ble"])
+def test_installed_sdk_honors_preexisting_constructor_cancellation(transport):
+    """The pinned SDK cancels setup before acquiring any native transport."""
+    import threading
+
+    from meshtastic.cancellation import ConnectionCancelledError
+
+    module = import_module(f"meshtastic.{transport}_interface")
+    factory = getattr(
+        module,
+        {"tcp": "TCPInterface", "serial": "SerialInterface", "ble": "BLEInterface"}[
+            transport
+        ],
+    )
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(ConnectionCancelledError):
+        factory(cancelEvent=cancel)
