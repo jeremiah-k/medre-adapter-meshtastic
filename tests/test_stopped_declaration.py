@@ -12,6 +12,7 @@ import pytest
 
 from medre.adapters.meshtastic.plugin import adapter_spec
 from medre.adapters.meshtastic.stopped_declaration import declaration
+from medre.maintenance.stopped_declare import declaration_from_spec
 
 
 def test_spec_references_the_declaration_module():
@@ -20,6 +21,22 @@ def test_spec_references_the_declaration_module():
     assert reference.module == "medre.adapters.meshtastic.stopped_declaration"
     assert reference.name == "declaration"
     assert declaration().provider == "meshtastic"
+
+
+def test_core_resolution_resolves_the_referenced_factory():
+    resolved = declaration_from_spec(adapter_spec())
+    assert resolved.provider == "meshtastic"
+    coverage = resolved.coverage(
+        SimpleNamespace(connection_type="tcp"), adapter_id="radio"
+    )
+    assert coverage.state_class == "device_attached"
+    assert coverage.files == ()
+    for connection_type in ("tcp", "serial", "ble"):
+        exclusion = resolved.local_exclusion(
+            SimpleNamespace(connection_type=connection_type), adapter_id="radio"
+        )
+        assert exclusion.scope == "unsupported"
+        assert exclusion.method == "none"
 
 
 def test_radio_providers_are_device_attached_with_zero_files():
