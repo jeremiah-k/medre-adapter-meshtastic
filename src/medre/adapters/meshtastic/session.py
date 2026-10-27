@@ -99,6 +99,21 @@ class MeshtasticSessionDiagnostics:
     last_liveness_error: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class NativeSendAttempt:
+    """The accepted ordinary send attempt's native result and provenance.
+
+    ``connection_generation`` is captured together with the client
+    reference immediately before the native invocation, so the returned
+    generation is exactly the one that owned the client which accepted
+    the send — a reconnect during the bounded retry loop can never
+    misattribute the accepting attempt to an older generation.
+    """
+
+    native: object | None
+    connection_generation: int
+
+
 class MeshtasticSession:
     """Transport-owned session boundary for Meshtastic connections.
 
@@ -569,6 +584,8 @@ class MeshtasticSession:
         Guarded callbacks run after queue pacing. Cancellation and exact client
         generation are checked around the grant and inside the SDK worker.
         Ordinary packets retain their existing bounded retry policy.
+        The accepting attempt's client generation is available via
+        :meth:`send_with_provenance`.
 
         When *packet_dict* contains a ``reply_id`` key, the method uses
         the protobuf ``_sendPacket`` path to build a structured
@@ -610,9 +627,26 @@ class MeshtasticSession:
             raise MeshtasticSendError(
                 "cancellation fence requires a guarded send", transient=False
             )
+        return (await self.send_with_provenance(packet_dict)).native
+
+    async def send_with_provenance(
+        self,
+        packet_dict: dict[str, Any],
+    ) -> NativeSendAttempt:
+        """Send via the ordinary bounded-retry path with attempt provenance.
+
+        Fake mode (no client) returns a ``None`` native result under the
+        current generation. Every retry re-resolves the client and its
+        generation together under the client-state lock, so a reconnect
+        between attempts is attributed exactly: the returned generation
+        is the one that owned the client which accepted the send.
+        """
         if self._client is None:
             # Fake mode — no real send
-            return None
+            return NativeSendAttempt(
+                native=None,
+                connection_generation=self._connection_generation,
+            )
 
         text = str(packet_dict.get("text", ""))
         channel_index = packet_dict.get("channel_index", 0)
@@ -621,18 +655,23 @@ class MeshtasticSession:
 
         last_exc: Exception | None = None
         for attempt in range(1, _MAX_SEND_RETRIES + 1):
+            with self._client_state_lock:
+                client, generation = self._client, self._connection_generation
             try:
                 if reply_id is not None:
                     result = await self._send_structured(
-                        text, channel_index, reply_id, emoji
+                        text, channel_index, reply_id, emoji, client=client
                     )
                 else:
                     result = await asyncio.to_thread(
-                        self._client.sendText,
+                        client.sendText,
                         text,
                         channelIndex=channel_index,
                     )
-                return cast(object, result)
+                return NativeSendAttempt(
+                    native=cast(object, result),
+                    connection_generation=generation,
+                )
             except asyncio.CancelledError:
                 raise
             except MeshtasticSendError as exc:

@@ -10,6 +10,7 @@ import pytest
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.adapters.meshtastic.session import NativeSendAttempt
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
@@ -107,10 +108,13 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
             if submissions == 1:
                 first_entered.set()
                 await release_original.wait()
-            return {"id": 9000 + submissions}
+            return NativeSendAttempt(
+                native={"id": 9000 + submissions},
+                connection_generation=session.connection_generation,
+            )
 
         send = AsyncMock(side_effect=native_send)
-        monkeypatch.setattr(type(session), "send", send)
+        monkeypatch.setattr(type(session), "send_with_provenance", send)
         await adapters[source].simulate_inbound(
             make_text_packet(
                 text="radio original", packet_id=101, channel=source_channel

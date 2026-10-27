@@ -62,6 +62,14 @@ ignore, drop, deferred) and sub-counters for specific reasons (encrypted,
 detection sensor, DM, empty text, unknown portnum, malformed).  These
 are exposed via :meth:`diagnostics` and provide inbound evidence without
 external dependencies.
+
+Native routing results (ROUTING_APP ACK/NAK packets) additionally pass
+through :meth:`_observe_native_routing_packet`, which pairs them against
+bounded, session-fenced facts recorded for accepted sends.  The pairing
+is classification only: with the supported send path never requesting
+``want_ack``, no routing result reachable from this adapter qualifies as
+``remote_service`` or ``end_to_end`` delivery evidence, so nothing is
+ever submitted to core as a delivery observation.
 """
 
 from __future__ import annotations
@@ -89,12 +97,20 @@ from medre.adapters.meshtastic.packet_classifier import (
     REASON_MALFORMED,
     REASON_SELF_ECHO,
     REASON_UNKNOWN_PORTNUM,
+    ClassificationResult,
     MeshtasticPacketClassifier,
 )
 from medre.adapters.meshtastic.queue import (
     MeshtasticOutboundQueue,
     QueueDeliveryResult,
     QueueTerminalResult,
+)
+from medre.adapters.meshtastic.routing_observations import (
+    normalize_native_routing_result,
+)
+from medre.adapters.meshtastic.send_correlation import (
+    AcceptedSendFacts,
+    MeshtasticSendCorrelation,
 )
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
@@ -120,6 +136,17 @@ from medre.core.policies.startup_backlog_suppress import (
 )
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.supervision.diagnostic_contract import QUEUE_PENDING
+
+
+def _is_native_routing_callback(classification: ClassificationResult) -> bool:
+    """Return whether one classified inbound packet is a native routing callback.
+
+    ROUTING_APP packets classify under the ``routing`` portnum; the
+    classifier may also mark plain acknowledgment shapes with the
+    ``ack`` category. Both shapes are offered to send correlation
+    before the relay gate discards them from the publish path.
+    """
+    return classification.portnum == "routing" or classification.category == "ack"
 
 
 class MeshtasticAdapter(AdapterContract):
@@ -189,6 +216,11 @@ class MeshtasticAdapter(AdapterContract):
         self._guarded_sends: set[GuardedQueuedSend] = set()
         self.ctx: AdapterContext | None = None
         self._started: bool = False
+        # Bounded, session-fenced correlation of accepted native sends to
+        # later routing callbacks. Classification only: it never emits a
+        # core observation, because no native routing result reachable from
+        # this adapter's supported send path qualifies as delivered evidence.
+        self._send_correlation = self._new_send_correlation()
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._inbound_futures: set[concurrent.futures.Future[object]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -222,6 +254,24 @@ class MeshtasticAdapter(AdapterContract):
 
     # -- Lifecycle ----------------------------------------------------------
 
+    def _new_send_correlation(self) -> MeshtasticSendCorrelation:
+        """Build a correlation registry sized from the outbound queue config.
+
+        ``start()`` calls this on every (re)start: a stopped adapter's
+        registry is closed by ``stop()``, and a restart must get a fresh
+        one so accepted sends correlate again instead of every fact
+        landing in the after-close counter.
+        """
+        return MeshtasticSendCorrelation(
+            capacity=(
+                self._config.queue_max_size
+                if isinstance(self._config.queue_max_size, int)
+                and self._config.queue_max_size > 0
+                else 1024
+            ),
+            retention_seconds=self._config.reconnect_backoff_max_seconds,
+        )
+
     async def start(self, ctx: AdapterContext) -> None:
         """Connect to the Meshtastic node and begin receiving packets.
 
@@ -241,6 +291,10 @@ class MeshtasticAdapter(AdapterContract):
         """
         if self._started:
             return
+
+        # A stop() closed the previous correlation registry; this start
+        # installs a fresh one so the restart correlates again.
+        self._send_correlation = self._new_send_correlation()
 
         # Clear cached health at lifecycle boundary so diagnostics
         # never reports a stale health string from a previous session.
@@ -350,6 +404,9 @@ class MeshtasticAdapter(AdapterContract):
             await self._session.stop(timeout=timeout)
 
         self._session = None
+        # Retained native ids never correlate across a stop: delayed
+        # results after shutdown are counted and dropped, never guessed.
+        self._send_correlation.clear()
         if self.ctx is not None:
             self.ctx.logger.info("MeshtasticAdapter %s stopped", self.adapter_id)
 
@@ -786,6 +843,16 @@ class MeshtasticAdapter(AdapterContract):
             self._increment_classifier_counters(classification)
             self._log_classification(classification)
 
+            # Native routing results (ACK/NAK) are classified as ack or
+            # deferred routing packets; offer them to send correlation
+            # before the relay gate discards them from the publish path.
+            if _is_native_routing_callback(classification):
+                self._observe_native_routing_packet(
+                    packet,
+                    connection_generation=connection_generation,
+                    own_node_id=own_node_id,
+                )
+
             # Only relay packets proceed to decode and publish
             if classification.action != "relay":
                 return
@@ -906,6 +973,17 @@ class MeshtasticAdapter(AdapterContract):
         self._increment_classifier_counters(classification)
         self._log_classification(classification)
 
+        # Same send-correlation hook as the live callback path so tests
+        # exercising simulate_inbound observe identical behavior.
+        if _is_native_routing_callback(classification):
+            self._observe_native_routing_packet(
+                packet,
+                connection_generation=(
+                    session.connection_generation if session is not None else None
+                ),
+                own_node_id=(session.node_id if session is not None else None),
+            )
+
         if classification.action != "relay":
             return
 
@@ -988,6 +1066,8 @@ class MeshtasticAdapter(AdapterContract):
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,
+            # Send correlation (classification only; never emits observations)
+            "send_correlation": self._send_correlation.snapshot(),
             # Full queue health snapshot (structurally identical to the
             # individual queue_* keys above but provided as a single
             # nested dict for programmatic consumers).
@@ -1288,6 +1368,17 @@ class MeshtasticAdapter(AdapterContract):
                         transient=not guarded.entered
                         and getattr(exc, "transient", False),
                     ) from exc
+            # The accepting attempt's provenance comes from inside the
+            # session's retry loop: a reconnect between attempts replaces
+            # the client and its generation, and the correlation fence
+            # must name the generation that actually accepted. Session
+            # doubles without the provenance boundary keep the plain
+            # send path and are never correlated.
+            provenance_send = getattr(session, "send_with_provenance", None)
+            if callable(provenance_send):
+                attempt = await provenance_send(send_dict)
+                item["_connection_generation"] = attempt.connection_generation
+                return attempt.native
             return await session.send(send_dict)
 
         result = await self._queue.process_one(send_fn=_send_fn)
@@ -1298,7 +1389,83 @@ class MeshtasticAdapter(AdapterContract):
                 completed_guard.complete(result.handoff)
             else:
                 completed_guard.fail(result.error or "guarded queue handoff failed")
+        if isinstance(result, QueueDeliveryResult):
+            self._record_send_correlation(result)
         return result
+
+    def _record_send_correlation(self, result: QueueDeliveryResult) -> None:
+        """Retain one accepted send's trusted local facts for later callbacks.
+
+        Records only validated outbox-backed work that carried a real
+        native packet id. Guarded planned packets are excluded: their
+        synchronous handoff belongs to core's own dispatch. An entry
+        without a native id could never match a callback request id and
+        is skipped instead of guessed.
+        """
+        if isinstance(result.item.get("guarded_send"), GuardedQueuedSend):
+            return
+        if result.handoff.native_message_id is None:
+            return
+        provenance = self._callback_attempt_provenance(
+            result.item, callback_kind="send-correlation"
+        )
+        if provenance is None:
+            return
+        generation = result.item.get("_connection_generation")
+        if isinstance(generation, bool) or not isinstance(generation, int):
+            # Without the owning generation the fact cannot be fenced;
+            # refusing it keeps every correlated pair session-exact.
+            return
+        self._send_correlation.record(
+            AcceptedSendFacts(
+                native_message_id=result.handoff.native_message_id,
+                native_channel_id=result.handoff.native_channel_id,
+                connection_generation=generation,
+                event_id=provenance.event_id,
+                delivery_plan_id=provenance.delivery_plan_id,
+                outbox_id=provenance.outbox_id,
+                attempt_number=provenance.attempt_number,
+            )
+        )
+
+    def _observe_native_routing_packet(
+        self,
+        packet: dict[str, Any],
+        *,
+        connection_generation: int | None,
+        own_node_id: str | None = None,
+    ) -> None:
+        """Pair one native routing callback against accepted sends.
+
+        Classification and counting only: no observation is ever
+        submitted to core from here, because no routing result this
+        transport can produce qualifies as delivered evidence. The
+        local node's id lets the local implicit acknowledgment
+        classify as itself rather than as a third party. Failures
+        are contained so the inbound path is never disturbed.
+        """
+        try:
+            normalized = normalize_native_routing_result(packet)
+            outcome = self._send_correlation.observe(
+                normalized,
+                connection_generation=connection_generation,
+                own_node_id=own_node_id,
+            )
+            if self.ctx is not None:
+                reason = getattr(outcome, "reason", None)
+                if isinstance(reason, str):
+                    self.ctx.logger.debug(
+                        "MeshtasticAdapter %s: routing callback uncorrelated: %s",
+                        self.adapter_id,
+                        reason,
+                    )
+        except Exception:
+            if self.ctx is not None:
+                self.ctx.logger.debug(
+                    "MeshtasticAdapter %s: routing callback normalization failed",
+                    self.adapter_id,
+                    exc_info=True,
+                )
 
     async def _process_queue(self) -> None:
         """Background task that continuously drains the outbound queue.
