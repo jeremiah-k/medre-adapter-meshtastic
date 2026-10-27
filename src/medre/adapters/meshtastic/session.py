@@ -128,6 +128,7 @@ class MeshtasticSession:
         "_client_state_lock",
         "_connection_generation",
         "_message_callback",
+        "_health_callback",
         "_logger",
         "_started",
         "_subscribed",
@@ -165,6 +166,7 @@ class MeshtasticSession:
         platform: str,
         *,
         logger: logging.Logger | None = None,
+        on_health_change: Callable[[], None] | None = None,
     ) -> None:
         self._config = config
         self._adapter_id = adapter_id
@@ -173,6 +175,7 @@ class MeshtasticSession:
         self._client_state_lock = threading.RLock()
         self._connection_generation: int = 0
         self._message_callback: Callable[[dict[str, Any]], None] | None = None
+        self._health_callback = on_health_change
         self._logger: logging.Logger = logger if logger is not None else _logger
         self._started: bool = False
         self._subscribed: bool = False
@@ -201,6 +204,17 @@ class MeshtasticSession:
         self._last_liveness_success_time: float | None = None
         self._last_liveness_error: str | None = None
         self._last_error: str | None = None
+
+    def _notify_health_change(self) -> None:
+        """Signal settled native state on the owned loop; observer failures are isolated."""
+        if self._stop_requested or not self._started or self._health_callback is None:
+            return
+        try:
+            self._health_callback()
+        except Exception as exc:
+            self._logger.warning(
+                "Meshtastic session health notification failed (%s)", type(exc).__name__
+            )
 
     # -- Properties -----------------------------------------------------------
 
@@ -1222,6 +1236,7 @@ class MeshtasticSession:
                 return
             self._reconnecting = True
             self._reconnect_task = asyncio.ensure_future(self._reconnect_loop())
+        self._notify_health_change()
 
     @property
     def _tcp_liveness_enabled(self) -> bool:
@@ -1597,6 +1612,7 @@ class MeshtasticSession:
                         )
                     self._reconnect_attempts = 0
                     self._last_error = None
+                    self._notify_health_change()
                     return
                 except asyncio.CancelledError:
                     if self._stop_requested:

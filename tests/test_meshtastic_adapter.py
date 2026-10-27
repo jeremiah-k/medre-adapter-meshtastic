@@ -1032,14 +1032,13 @@ class TestMeshtasticAdapterSelfEcho:
 
 
 class TestMeshtasticLastHealthLifecycleBoundary:
-    """_last_health is cleared at start/stop boundaries.
+    """_last_health is replaced at startup and cleared at stop.
 
-    Regression: cached _last_health must be reset to None on start()
-    and stop() so diagnostics never reports a stale health string from
-    a previous session.
+    Regression: diagnostics expose the started session readiness without a
+    probe and never reuse health from a retired session.
     """
 
-    async def test_last_health_cleared_on_start(self, make_adapter_context) -> None:
+    async def test_last_health_replaced_on_start(self, make_adapter_context) -> None:
         """start() clears _last_health so a stale value from a prior
         session does not leak into diagnostics."""
         config = make_meshtastic_config(connection_type="fake")
@@ -1050,7 +1049,7 @@ class TestMeshtasticLastHealthLifecycleBoundary:
         adapter._last_health = "failed"
 
         await adapter.start(ctx)
-        assert adapter._last_health is None
+        assert adapter._last_health == "healthy"
 
         await adapter.stop()
 
@@ -1087,7 +1086,7 @@ class TestMeshtasticLastHealthLifecycleBoundary:
         adapter._last_health = "failed"  # simulate stale injection
         ctx2 = make_adapter_context("mesh-2")
         await adapter.start(ctx2)
-        assert adapter._last_health is None
+        assert adapter._last_health == "healthy"
 
         await adapter.health_check()
         assert adapter._last_health == "healthy"
@@ -1101,10 +1100,10 @@ class TestMeshtasticLastHealthLifecycleBoundary:
 # ===================================================================
 
 
-async def test_diagnostics_health_none_before_first_health_check(
+async def test_diagnostics_health_published_by_start(
     make_adapter_context,
 ) -> None:
-    """diagnostics()['health'] is None before the first health_check() call."""
+    """Startup publishes health without waiting for an explicit probe."""
     config = make_meshtastic_config(connection_type="fake")
     adapter = MeshtasticAdapter(config)
     ctx = make_adapter_context("mesh-1")
@@ -1114,8 +1113,8 @@ async def test_diagnostics_health_none_before_first_health_check(
 
     await adapter.start(ctx)
 
-    # After start but before health_check
-    assert adapter.diagnostics()["health"] is None
+    # Startup observes the completed session state before an explicit probe.
+    assert adapter.diagnostics()["health"] == "healthy"
 
     await adapter.stop()
 
@@ -1154,7 +1153,7 @@ async def test_diagnostics_health_cleared_on_stop(
 async def test_diagnostics_health_cleared_on_restart(
     make_adapter_context,
 ) -> None:
-    """diagnostics()['health'] is None after stop->start cycle (before new health_check)."""
+    """Restart replaces the retired session health before an explicit probe."""
     config = make_meshtastic_config(connection_type="fake")
     adapter = MeshtasticAdapter(config)
     ctx = make_adapter_context("mesh-1")
@@ -1170,8 +1169,8 @@ async def test_diagnostics_health_cleared_on_restart(
     ctx2 = make_adapter_context("mesh-2")
     await adapter.start(ctx2)
 
-    # Before health_check, diagnostics must show None
-    assert adapter.diagnostics()["health"] is None
+    # The replacement session publishes its own readiness during startup.
+    assert adapter.diagnostics()["health"] == "healthy"
 
     # After health_check, it shows the correct value
     await adapter.health_check()
