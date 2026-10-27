@@ -176,6 +176,9 @@ class MeshtasticOutboundQueue:
     critical_threshold_pct:
         Queue utilization percentage that enters ``critical`` pressure. Must be
         greater than ``warning_threshold_pct``.
+    on_pressure_change:
+        Optional synchronous observer called after a pressure classification
+        changes. Observer exceptions cannot affect queue acceptance or pacing.
     """
 
     def __init__(
@@ -185,6 +188,8 @@ class MeshtasticOutboundQueue:
         max_attempts: int = 3,
         warning_threshold_pct: float = 75.0,
         critical_threshold_pct: float = 90.0,
+        *,
+        on_pressure_change: Callable[[], None] | None = None,
     ) -> None:
         # Validate max_queue_size: None=unbounded, positive int=bounded.
         if max_queue_size is not None:
@@ -213,6 +218,7 @@ class MeshtasticOutboundQueue:
             raise ValueError(
                 "warning_threshold_pct must be less than critical_threshold_pct"
             )
+        self._on_pressure_change = on_pressure_change
         self._process_lock = asyncio.Lock()
         self._delay = delay_between_messages
         self._max_queue_size = max_queue_size
@@ -763,6 +769,15 @@ class MeshtasticOutboundQueue:
                 len(self._queue),
                 max_sz,
             )
+
+        if self._on_pressure_change is not None:
+            try:
+                self._on_pressure_change()
+            except Exception as exc:
+                _logger.warning(
+                    "Meshtastic queue health notification failed (%s)",
+                    type(exc).__name__,
+                )
 
     @property
     def pressure_state(self) -> Literal["normal", "warning", "critical", "full"]:

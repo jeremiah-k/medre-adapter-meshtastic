@@ -59,7 +59,6 @@ parameter retain the late-client disposal path. Native operations that do not
 observe the event can still delay interpreter exit; the host does not claim to
 terminate a thread.
 
-
 ## Recovery cadence and native diagnostics
 
 The default reconnect delay MUST start at ten seconds and grow exponentially to
@@ -74,3 +73,17 @@ ERROR records remain visible. Explicit `logging.overrides` for `meshtastic.ble`
 or `meshtastic.ble_interface` MUST take precedence, allowing DEBUG diagnostics.
 This log policy MUST NOT convert an unavailable host controller into a permanent
 adapter failure or change Bluetooth power or pairing state.
+
+## Native health observations
+
+The adapter MUST report completed native health changes through the runtime's
+optional `AdapterContext.report_health` sink when available. Explicit probes and
+native notifications MUST use the same readiness calculation. Reports MUST be
+bound to the started adapter lifetime; stop and replacement MUST retire their
+callbacks. Observer exceptions MUST NOT interrupt native lifecycle or delivery.
+Contexts without the optional sink MUST retain explicit-probe compatibility.
+
+Connection loss and owned client replacement MUST update retained health.
+Queue transitions into and out of critical/full pressure MUST also update it;
+connectivity alone MUST NOT hide critical queue pressure. Native health MUST NOT
+imply independent RF reception or change paced submission ownership.

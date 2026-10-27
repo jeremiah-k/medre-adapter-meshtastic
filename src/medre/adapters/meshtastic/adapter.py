@@ -176,12 +176,15 @@ class MeshtasticAdapter(AdapterContract):
         self._session: MeshtasticSession | None = None
         self._codec = MeshtasticCodec(config.adapter_id, config)
         self._classifier = MeshtasticPacketClassifier(config)
+        self._health_epoch = 0
+        self._reported_health: str | None = None
         self._queue = MeshtasticOutboundQueue(
             delay_between_messages=config.message_delay_seconds,
             max_queue_size=config.queue_max_size,
             max_attempts=config.queue_send_max_attempts,
             warning_threshold_pct=config.queue_warning_threshold_pct,
             critical_threshold_pct=config.queue_critical_threshold_pct,
+            on_pressure_change=lambda: self._report_native_health(self._health_epoch),
         )
         self._guarded_sends: set[GuardedQueuedSend] = set()
         self.ctx: AdapterContext | None = None
@@ -242,6 +245,9 @@ class MeshtasticAdapter(AdapterContract):
         # Clear cached health at lifecycle boundary so diagnostics
         # never reports a stale health string from a previous session.
         self._last_health = None
+        self._health_epoch += 1
+        self._reported_health = None
+        health_epoch = self._health_epoch
 
         self.ctx = ctx
 
@@ -251,6 +257,7 @@ class MeshtasticAdapter(AdapterContract):
             adapter_id=self.adapter_id,
             platform=self.platform,
             logger=ctx.logger if ctx.logger else None,
+            on_health_change=lambda: self._report_native_health(health_epoch),
         )
 
         # Register our inbound packet callback with the session
@@ -285,6 +292,7 @@ class MeshtasticAdapter(AdapterContract):
         # Record start time only after session and infrastructure are up.
         self._mark_started(ctx)
         self._started = True
+        self._report_native_health(health_epoch)
         ctx.logger.info(
             "MeshtasticAdapter %s started (mode=%s)",
             self.adapter_id,
@@ -316,6 +324,8 @@ class MeshtasticAdapter(AdapterContract):
         # run_coroutine_threadsafe submissions.
         self._started = False
         self._start_time = None
+        self._health_epoch += 1
+        self._reported_health = None
 
         # Clear cached health at lifecycle boundary.
         self._last_health = None
@@ -353,6 +363,37 @@ class MeshtasticAdapter(AdapterContract):
         AdapterInfo
             Metadata describing the adapter's state.
         """
+        info = self._health_info()
+        if (
+            self._started
+            and self._session is not None
+            and self._config.connection_type != "fake"
+            and not self._session.connected
+            and not self._session.reconnecting
+        ):
+            # Preserve the explicit probe's backup recovery trigger. Native
+            # diagnostic observers do not schedule transport recovery.
+            self._session.notify_connection_lost()
+        return info
+
+    def _report_native_health(self, epoch: int) -> None:
+        """Publish session and queue readiness without probing or owning recovery."""
+        if epoch != self._health_epoch or not self._started or self.ctx is None:
+            return
+        info = self._health_info()
+        report = getattr(self.ctx, "report_health", None)
+        if report is None or self._reported_health == info.health:
+            return
+        try:
+            report(info)
+            self._reported_health = info.health
+        except Exception as exc:
+            self.ctx.logger.warning(
+                "Meshtastic health notification failed (%s)", type(exc).__name__
+            )
+
+    def _health_info(self) -> AdapterInfo:
+        """Compose the same settled connection and pressure state for probes and reports."""
         if self._started and self._session is not None:
             if self._session.connected or self._config.connection_type == "fake":
                 health = (
@@ -363,11 +404,10 @@ class MeshtasticAdapter(AdapterContract):
             elif self._session.reconnecting:
                 health = "degraded"
             else:
-                # The SDK can clear isConnected without the pubsub disconnect
-                # callback reaching MEDRE.  Treat that as degraded and use the
-                # normal reconnect path as a backup recovery trigger.
+                # The SDK can clear isConnected without a pubsub callback.
+                # Report degradation; an explicit probe retains the existing
+                # backup recovery trigger outside this observation projection.
                 health = "degraded"
-                self._session.notify_connection_lost()
         elif self._session is not None and not self._started:
             # Session exists but start did not complete — subscription failure.
             health = "failed"
