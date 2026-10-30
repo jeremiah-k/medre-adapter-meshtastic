@@ -92,7 +92,8 @@ async def attempt(storage, result):
     """Create one exact in-progress claim through production storage validation."""
     item = replace(
         make_outbox_item(
-            status="in_progress",
+            status="pending",
+            attempt_number=0,
             event_id=result.event_id,
             target_adapter="mt",
             target_channel="0",
@@ -100,6 +101,11 @@ async def attempt(storage, result):
         worker_id="owner",
     )
     item = await create_outbox_item_with_parent(storage, item)
+    claims = await storage.claim_due_outbox_items(
+        datetime.now(UTC).isoformat(), "owner"
+    )
+    assert any(row.outbox_id == item.outbox_id for row in claims)
+    assert await storage.reserve_outbox_attempt(item.outbox_id, "owner", 0) == 1
     claim = DeliveryAttemptProvenance(
         item.event_id, item.delivery_plan_id, "mt", "0", item.outbox_id, 1, "live"
     )
