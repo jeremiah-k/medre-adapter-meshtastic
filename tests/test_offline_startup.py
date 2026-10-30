@@ -232,6 +232,7 @@ async def test_offline_second_radio_does_not_block_other_runtime_adapters(
     monkeypatch.setattr(MeshtasticSession, "_create_client", connect)
     monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", lambda _: None)
     monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+    monkeypatch.setattr("medre.adapters.meshtastic.compat.HAS_MESHTASTIC", True)
     paths = resolve(environ={"MEDRE_HOME": str(tmp_path)})
     config = parse_runtime_config(
         {
