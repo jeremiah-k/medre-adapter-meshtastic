@@ -397,7 +397,11 @@ class TestMeshtasticInboundToFakeOutbound:
         assert resolved is not None
 
         # Verify stored event has correct source metadata.
-        stored = await temp_storage.get(resolved)
+        content_read = await temp_storage.read_event_for_replay(
+            resolved, now=datetime.now(timezone.utc)
+        )
+        assert content_read.status == "retained"
+        stored = content_read.event
         assert stored is not None
         assert stored.source_transport_id == "!deadbeef"
         assert stored.source_channel_id == "3"
@@ -554,7 +558,11 @@ class TestMeshtasticInboundToFakeOutbound:
         assert reply_resolved is not None
 
         # Stored reply event has a reply relation.
-        stored_reply = await temp_storage.get(reply_resolved)
+        content_read = await temp_storage.read_event_for_replay(
+            reply_resolved, now=datetime.now(timezone.utc)
+        )
+        assert content_read.status == "retained"
+        stored_reply = content_read.event
         assert stored_reply is not None
         assert len(stored_reply.relations) == 1
         rel = stored_reply.relations[0]
