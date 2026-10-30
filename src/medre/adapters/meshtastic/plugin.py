@@ -11,6 +11,7 @@ def adapter_spec() -> AdapterSpec:
     operator logger overrides still expose them for diagnosis.
     """
     return AdapterSpec(
+        api_version=1,
         native_setup_fields=(
             NativeSetupField(
                 "connection_type",
