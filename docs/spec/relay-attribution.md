@@ -16,7 +16,6 @@ it MUST NOT split an encoded code point. Matrix display-name abbreviation uses
 characters; final wire truncation uses bytes. Native tapbacks remain native
 without an added visible text prefix.
 
-
 ## Reactions across radio instances
 
 Reactions sourced from any configured Meshtastic instance MUST retain native
