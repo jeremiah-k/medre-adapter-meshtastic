@@ -48,6 +48,17 @@ On :meth:`stop`, ``_started`` is cleared *before* draining, causing
 to skip publication against a torn-down session.  Remaining inbound
 futures are cancelled during :meth:`_drain_background_tasks`.
 
+**Bounded loss-honest staging.** Relayable ingress is bounded *before*
+scheduling: a non-blocking reservation from a finite per-session pool
+must be acquired or the packet is refused — never scheduled, never
+admitted, never deduplicated — and the loss is reported as
+``producer_overflow`` diagnostics plus an ``overflow``
+:class:`~medre.core.contracts.adapter.ProducerPressureReport` with
+reason ``callback_capacity`` through the optional
+``report_producer_pressure`` sink. Staged and cancelled-before-admission
+work is reported through the same sink. ACK/NAK and routing-correlation
+callbacks are never throttled.
+
 Session boundary
 ----------------
 The adapter delegates raw transport lifecycle to
@@ -76,8 +87,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -123,6 +135,7 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
+    ProducerPressureReport,
 )
 from medre.adapters.meshtastic.guarded import GuardedQueuedSend
 from medre.core.contracts.delivery import (
@@ -149,6 +162,52 @@ def _is_native_routing_callback(classification: ClassificationResult) -> bool:
     return classification.portnum == "routing" or classification.category == "ack"
 
 
+class _IngressStagingReservations:
+    """Thread-safe, non-blocking staging slots for reader-thread ingress.
+
+    The Meshtastic SDK delivers packets on its own reader thread. That
+    thread must never park waiting for a staging slot, so acquisition is
+    a non-blocking semaphore take under a short lock; a refused acquire
+    becomes an explicit, counted overflow instead of a blocked callback.
+
+    A generation sync keeps reservations session-exact: when the caller
+    observes a connection generation newer than the pool's, the pool is
+    replaced before the acquire, so a reconnected session never inherits
+    stale reservations. Releases captured from a retired pool land in
+    that retired pool only and can never over-grant the fresh one.
+    """
+
+    __slots__ = ("_capacity", "_generation", "_lock", "_slots")
+
+    def __init__(self, capacity: int) -> None:
+        self._capacity = capacity
+        self._generation: int | None = None
+        self._lock = threading.Lock()
+        self._slots = threading.Semaphore(capacity)
+
+    @property
+    def capacity(self) -> int:
+        """Configured slot count; the pool is always finite."""
+        return self._capacity
+
+    def acquire(self, generation: int | None) -> Callable[[], None] | None:
+        """Take one staging slot without blocking.
+
+        Returns a one-shot releaser bound to the exact pool that issued
+        the slot, or ``None`` when every slot is currently held. When
+        *generation* differs from the pool's, the pool is reset first so
+        the caller's session state owns a full, private capacity.
+        """
+        with self._lock:
+            if generation != self._generation:
+                self._generation = generation
+                self._slots = threading.Semaphore(self._capacity)
+            if not self._slots.acquire(blocking=False):
+                return None
+            slots = self._slots
+        return slots.release
+
+
 class MeshtasticAdapter(AdapterContract):
     """Transport adapter for Meshtastic radio nodes.
 
@@ -165,7 +224,10 @@ class MeshtasticAdapter(AdapterContract):
     Futures are tracked in ``_inbound_futures`` and cancelled on stop.
     The ``_started`` flag gates both :meth:`_on_packet` (sync, SDK
     thread) and :meth:`_on_packet_async` (async, event loop) to
-    prevent late-packet processing after session teardown.
+    prevent late-packet processing after session teardown.  Staging is
+    bounded by a finite per-session reservation pool
+    (:class:`_IngressStagingReservations`); refusals are explicit,
+    counted loss reported through the optional producer-pressure sink.
 
     Parameters
     ----------
@@ -225,6 +287,13 @@ class MeshtasticAdapter(AdapterContract):
         self._inbound_futures: set[concurrent.futures.Future[object]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._drain_task: asyncio.Task[Any] | None = None
+        # Bounded reader-thread staging: slots held by staged-but-unfinished
+        # inbound publications. Installed at construction and replaced by
+        # every start(); see _IngressStagingReservations for the
+        # session-generation contract.
+        self._ingress_reservations = _IngressStagingReservations(
+            config.max_pending_ingress_callbacks
+        )
 
         # Classifier counters — inbound evidence
         self._classifier_packets_seen: int = 0
@@ -240,6 +309,10 @@ class MeshtasticAdapter(AdapterContract):
         self._classifier_packets_unknown_portnum_deferred: int = 0
         self._classifier_packets_self_echo_ignored: int = 0
         self._inbound_published: int = 0
+
+        # Producer-side pressure evidence — explicit, counted staging loss.
+        # Cumulative across sessions, like the classifier counters.
+        self._producer_overflow: int = 0
 
         # Startup backlog suppression
         self._adapter_start_epoch: float | None = None
@@ -295,6 +368,14 @@ class MeshtasticAdapter(AdapterContract):
         # A stop() closed the previous correlation registry; this start
         # installs a fresh one so the restart correlates again.
         self._send_correlation = self._new_send_correlation()
+
+        # Fresh staging capacity for the new session: a restart never
+        # inherits reservations from the previous session's staged work.
+        # Construction installed a pool too; start() replaces it so the
+        # new session's generation owns full, private capacity.
+        self._ingress_reservations = _IngressStagingReservations(
+            self._config.max_pending_ingress_callbacks
+        )
 
         # Clear cached health at lifecycle boundary so diagnostics
         # never reports a stale health string from a previous session.
@@ -874,7 +955,22 @@ class MeshtasticAdapter(AdapterContract):
             # instead of asyncio.create_task (which requires a running loop
             # in the current thread).  The resulting Future is tracked in
             # _inbound_futures so that stop() can drain/cancel it.
-            if self._loop is not None and not self._loop.is_closed():
+            if self._loop is None or self._loop.is_closed():
+                return
+            # Bounded pre-scheduling reservation.  Only relayable text
+            # reaches this point; ACK/NAK and routing-correlation paths
+            # returned earlier and are never throttled.  The reader thread
+            # must never park waiting for a slot: the acquire is
+            # non-blocking and a refusal becomes explicit, counted loss
+            # before any scheduling, admission, or dedup consumption.
+            reservations = self._ingress_reservations
+            if reservations is None:
+                return
+            release = reservations.acquire(connection_generation)
+            if release is None:
+                self._record_ingress_overflow()
+                return
+            try:
                 future: concurrent.futures.Future[object] = (
                     asyncio.run_coroutine_threadsafe(
                         self._on_packet_async(
@@ -885,8 +981,16 @@ class MeshtasticAdapter(AdapterContract):
                         self._loop,
                     )
                 )
-                self._inbound_futures.add(future)
-                future.add_done_callback(lambda f: self._inbound_futures.discard(f))
+            except Exception:
+                # Scheduling failed (e.g. the loop closed between the check
+                # and the submission); the slot would otherwise leak.
+                release()
+                raise
+            self._inbound_futures.add(future)
+            future.add_done_callback(
+                lambda done, release=release: self._finish_inbound_future(done, release)
+            )
+            self._report_producer_pressure("scheduled")
         except Exception:
             if self.ctx is not None:
                 self.ctx.logger.exception(
@@ -933,6 +1037,74 @@ class MeshtasticAdapter(AdapterContract):
                 self.ctx.logger.exception(
                     "MeshtasticAdapter %s: error in background publish",
                     self.adapter_id,
+                )
+
+    def _finish_inbound_future(
+        self,
+        future: concurrent.futures.Future[object],
+        release: Callable[[], None],
+    ) -> None:
+        """Retire one staged inbound future and return its staging reservation.
+
+        The done callback fires exactly once per future, on completion,
+        error, and cancellation alike, so every acquire is balanced by
+        exactly one release and no slot leaks on any terminal state.
+        """
+        self._inbound_futures.discard(future)
+        release()
+
+    def _record_ingress_overflow(self) -> None:
+        """Record one refused reader-thread staging attempt as explicit loss.
+
+        The refused packet was never scheduled and never admitted: no
+        dedup state and no native identity was consumed. The loss is made
+        visible — counted in ``producer_overflow`` diagnostics, reported
+        through the optional producer-pressure sink, and logged once with
+        no message content and no sender identity. The refusal implies no
+        admission and no retry; the packet is simply gone.
+        """
+        self._producer_overflow += 1
+        if self.ctx is not None:
+            self.ctx.logger.warning(
+                "MeshtasticAdapter %s: reader-thread ingress staging refused "
+                "reason=callback_capacity",
+                self.adapter_id,
+            )
+        self._report_producer_pressure("overflow", reason="callback_capacity")
+
+    def _report_producer_pressure(
+        self,
+        outcome: str,
+        *,
+        count: int = 1,
+        reason: str | None = None,
+    ) -> None:
+        """Best-effort report one producer pressure fact to the context sink.
+
+        The sink is optional (older core and direct tests omit it) and
+        reporting is skipped when absent. The core sink never raises; the
+        defensive catch keeps a misbehaving observer from ever disturbing
+        the reader thread or the shutdown path. Reports are content-free:
+        outcome, coalesced count, and a machine-token reason only.
+        """
+        ctx = self.ctx
+        if ctx is None:
+            return
+        report = getattr(ctx, "report_producer_pressure", None)
+        if report is None:
+            return
+        try:
+            report(
+                ProducerPressureReport(
+                    self.adapter_id, outcome, count=count, reason=reason
+                )
+            )
+        except Exception:
+            if ctx.logger is not None:
+                ctx.logger.debug(
+                    "MeshtasticAdapter %s: producer pressure report failed (%s)",
+                    self.adapter_id,
+                    outcome,
                 )
 
     async def simulate_inbound(self, packet: dict[str, Any]) -> None:
@@ -1058,6 +1230,10 @@ class MeshtasticAdapter(AdapterContract):
             "classifier_packets_unknown_portnum_deferred": self._classifier_packets_unknown_portnum_deferred,
             "classifier_packets_self_echo_ignored": self._classifier_packets_self_echo_ignored,
             "inbound_published": self._inbound_published,
+            # Bounded reader-thread staging — explicit, counted loss
+            "producer_overflow": self._producer_overflow,
+            "inbound_staged_pending": len(self._inbound_futures),
+            "max_pending_ingress_callbacks": self._config.max_pending_ingress_callbacks,
             # Startup backlog suppression
             "startup_backlog_packets_seen": self._startup_backlog_packets_seen,
             "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
@@ -1217,9 +1393,19 @@ class MeshtasticAdapter(AdapterContract):
         """
         # --- Drain inbound futures (run_coroutine_threadsafe) ---
         # Cancel any that haven't started; suppress results from the rest.
+        # Each future that actually transitions to cancelled names a staged
+        # publication that will not return from publish_inbound; the loss
+        # is reported once as a coalesced cancelled_before_admission count
+        # instead of one report per future.
+        cancelled_staged = 0
         for future in list(self._inbound_futures):
-            future.cancel()
+            if future.cancel():
+                cancelled_staged += 1
         self._inbound_futures.clear()
+        if cancelled_staged:
+            self._report_producer_pressure(
+                "cancelled_before_admission", count=cancelled_staged
+            )
 
         # --- Drain asyncio background tasks ---
         # Critical callback tasks (terminal / native-ref) are given a

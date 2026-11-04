@@ -312,6 +312,48 @@ class TestMeshtasticConfigInvalid:
         with pytest.raises(MeshtasticConfigError, match="queue_send_max_attempts"):
             config.validate()
 
+    # -- max_pending_ingress_callbacks validation --
+
+    def test_max_pending_ingress_callbacks_default_is_100(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.max_pending_ingress_callbacks == 100
+
+    def test_max_pending_ingress_callbacks_positive_int_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", max_pending_ingress_callbacks=1)
+        assert config.validate().max_pending_ingress_callbacks == 1
+
+    def test_max_pending_ingress_callbacks_bool_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", max_pending_ingress_callbacks=True  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="max_pending_ingress_callbacks"
+        ):
+            config.validate()
+
+    def test_max_pending_ingress_callbacks_string_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", max_pending_ingress_callbacks="100"  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="max_pending_ingress_callbacks"
+        ):
+            config.validate()
+
+    def test_max_pending_ingress_callbacks_zero_raises(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", max_pending_ingress_callbacks=0)
+        with pytest.raises(
+            MeshtasticConfigError, match="max_pending_ingress_callbacks"
+        ):
+            config.validate()
+
+    def test_max_pending_ingress_callbacks_negative_raises(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", max_pending_ingress_callbacks=-1)
+        with pytest.raises(
+            MeshtasticConfigError, match="max_pending_ingress_callbacks"
+        ):
+            config.validate()
+
     # -- outbound_mode validation --
 
     def test_outbound_mode_default_is_enabled(self) -> None:
