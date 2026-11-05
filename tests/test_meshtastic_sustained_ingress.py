@@ -21,6 +21,7 @@ import gc
 import json
 import logging
 import os
+import sys
 import threading
 import time
 import tracemalloc
@@ -82,8 +83,26 @@ def _ru_maxrss_kb() -> int | None:
         import resource
     except ImportError:
         return None
-    usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return int(usage)
+    usage = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    # ru_maxrss is bytes on macOS and kilobytes on Linux.
+    return usage // 1024 if sys.platform == "darwin" else usage
+
+
+@pytest.mark.parametrize(
+    "platform,raw,expected", [("linux", 4096, 4096), ("darwin", 4096, 4)]
+)
+def test_process_rss_units_are_kilobytes(
+    monkeypatch: pytest.MonkeyPatch, platform: str, raw: int, expected: int
+) -> None:
+    """Export the same RSS unit on Linux and macOS."""
+    from types import SimpleNamespace
+
+    fake_resource = SimpleNamespace(
+        RUSAGE_SELF=0, getrusage=lambda _kind: SimpleNamespace(ru_maxrss=raw)
+    )
+    monkeypatch.setitem(sys.modules, "resource", fake_resource)
+    monkeypatch.setattr(sys, "platform", platform)
+    assert _ru_maxrss_kb() == expected
 
 
 async def _start(
@@ -543,6 +562,11 @@ async def test_stop_drain_coalesces_queued_cancellations_under_load() -> None:
             drain.send(None)
         except StopIteration:
             pass
+        else:
+            drain.close()
+            raise AssertionError(
+                "stop-drain suspended; expected synchronous completion"
+            )
         observed["futures_after_drain"] = len(adapter._inbound_futures)
         drain_ran.set()
         loop.call_soon(resumed.set)
@@ -634,12 +658,17 @@ async def test_burst_memory_grows_sublinearly_and_reader_acquire_stays_bounded(
         )
         await _start(adapter, publisher, reports)
         samples: list[float] = []
+        started_tracing = False
         adapter._ingress_reservations = _TimedReservations(
             adapter._ingress_reservations, samples
         )
         try:
             gc.collect()
-            tracemalloc.start()
+            started_tracing = not tracemalloc.is_tracing()
+            if started_tracing:
+                tracemalloc.start()
+            tracemalloc.reset_peak()
+            tracing_baseline = tracemalloc.get_traced_memory()[0]
 
             def burst_callback(frames=packets, target=adapter) -> None:
                 for packet in frames:
@@ -650,8 +679,11 @@ async def test_burst_memory_grows_sublinearly_and_reader_acquire_stays_bounded(
 
             staged = len(adapter._inbound_futures)
             refused = adapter.diagnostics()["producer_overflow"]
-            _current, peak = tracemalloc.get_traced_memory()
-            tracemalloc.stop()
+            _current, raw_peak = tracemalloc.get_traced_memory()
+            peak = max(0, raw_peak - tracing_baseline)
+            if started_tracing:
+                tracemalloc.stop()
+                started_tracing = False
             peaks[size] = peak
             max_acquire[size] = max(samples)
             samples_seen[size] = len(samples)
@@ -686,6 +718,8 @@ async def test_burst_memory_grows_sublinearly_and_reader_acquire_stays_bounded(
             )
         finally:
             holder["gate"].set()
+            if started_tracing:
+                tracemalloc.stop()
             await adapter.stop()
 
     assert samples_seen[burst] == burst

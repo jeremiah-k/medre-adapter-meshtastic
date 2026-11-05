@@ -104,7 +104,7 @@ record per run.
   from full capacity.
 - Memory and reader-thread acquire latency (``tracemalloc`` peak of the held
   saturated state): the 100-burst peaked at ~0.94 MB, the 1600-burst at
-  ~1.11 MB — a 1.21x growth for a 16x burst, asserted sublinear in CI
+  ~1.11 MB — about 1.2x growth for a 16x burst, asserted sublinear in CI
   (pending work tracks the cap, not the burst). The maximum observed
   reader ``acquire`` latency was 0.016–0.031 ms across runs against a
   100 ms bound: the acquire never parks, and this is not a throughput SLA.

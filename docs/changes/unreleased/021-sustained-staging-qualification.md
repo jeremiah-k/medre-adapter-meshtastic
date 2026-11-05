@@ -16,7 +16,7 @@ submissions), and leaves the retired pool fully released; a restarted
 session immediately stages an above-cap burst under the identical contract.
 
 Content-free memory and reader-latency evidence extends the
-``MEDRE_PRESSURE_REPORT_DIR`` record: ``tracemalloc`` peak grows 1.21x for a
+``MEDRE_PRESSURE_REPORT_DIR`` record: ``tracemalloc`` peak grows about 1.2x for a
 16x burst (pending work tracks the cap, not the burst; the sublinear bound
 is asserted in CI), and the reader-thread reservation acquire stays
 non-blocking with microsecond-scale observed maxima. This is a loss-honesty
