@@ -6,12 +6,16 @@ canonical publisher holds all submissions so they cannot complete before the
 staging high-water mark is observed. Calls are made from a separate thread,
 matching the SDK's synchronous reader callback ownership. Each emitted frame
 has a distinct native ID and passes the actual classifier/codec path.
+`tests/test_meshtastic_sustained_ingress.py` extends that suite with the
+sustained-ingress qualification record below: above-cap bursts, a sustained
+imbalance cycle, stop/restart under full staging, and memory/latency evidence.
 
 Run the boundary tests without a radio or network:
 
 ```sh
 MEDRE_PRESSURE_REPORT_DIR=./pressure-results pytest \
-  tests/test_meshtastic_ingress_pressure.py -q
+  tests/test_meshtastic_ingress_pressure.py \
+  tests/test_meshtastic_sustained_ingress.py -q
 ```
 
 ## Pre-cap measurements (historical)
@@ -59,11 +63,61 @@ before node enrichment and codec decoding:
   identically minus the reports.
 
 The default of ``100`` is **provisional**, aligned with the core admission
-default. It is pending a measured-budget qualification round and is not a
+default. The measured qualification record below justifies the bound's
+loss-honest behavior, not a throughput budget; the default is not a
 throughput guarantee. The value is finite-only: non-positive values are
 rejected by configuration validation, and there is no unbounded option.
 
 The outbound paced queue's capacity is a separate contract.
+
+## Above-cap qualification (measured record)
+
+Recorded 2026-11-04 on the synthetic SDK callback tier
+(``connection_type="fake"``, default cap ``100``, no radio, network, or SDK
+install; all numbers content-free). The sustained-ingress suite runs in about
+1.5 seconds, and ``MEDRE_PRESSURE_REPORT_DIR`` exports one content-free JSON
+record per run.
+
+- Above-cap bursts at 1x, 4x, and 16x of the cap (100, 400, and 1600
+  relayable packets with publication held): exactly 100 futures staged,
+  exactly N−100 refused, and the accounting reconciled exactly — the
+  ``producer_overflow`` counter equals N−100, overflow reports sum to N−100
+  with reason ``callback_capacity``, and scheduled reports sum to 100.
+  Nothing was published for a refused packet. The staged 100 delivered in
+  full and the future set drained to zero on release. A repeated burst in
+  the same session reused full capacity: no slot leaks across cycles.
+- Sustained imbalance: 2,400 submitted callbacks across 20 lock-step cycles
+  (120 produced per cycle against 100 slots, 16-slot release batches,
+  condition-variable driven with no wall-clock sleeps) ended with 404
+  staged/published and 1,996 explicit refusals. At every cycle boundary the
+  invariants held exactly: submitted == staged + refused, staged ≤ 100, and
+  staged == published + in-flight.
+- Stop under saturation: stopping with a held publisher and full staging
+  cancelled every staged submission and left the retired pool fully
+  re-acquirable; the report counted only futures actually cancelled
+  pre-start (zero here — every held publisher had started, and running
+  cancellation stays ambiguous per the spec). A wedged-loop variant in
+  which all 100 staged submissions were deterministically queued-unstarted
+  produced exactly one coalesced ``cancelled_before_admission`` report with
+  count 100, and a full stop afterwards double-counted nothing. The
+  restarted session staged an above-cap burst under the identical contract
+  from full capacity.
+- Memory and reader-thread acquire latency (``tracemalloc`` peak of the held
+  saturated state): the 100-burst peaked at ~0.94 MB, the 1600-burst at
+  ~1.11 MB — about 1.2x growth for a 16x burst, asserted sublinear in CI
+  (pending work tracks the cap, not the burst). The maximum observed
+  reader ``acquire`` latency was 0.016–0.031 ms across runs against a
+  100 ms bound: the acquire never parks, and this is not a throughput SLA.
+  ``ru_maxrss`` is recorded in the run JSON as context only and is never
+  asserted.
+
+What this record proves: bounded staging under a 16x over-cap burst,
+loss-honest accounting at every boundary, leak-free capacity reuse within a
+session and across restart, and a reader thread that never parks. What it
+does NOT establish: any throughput or delivery-latency guarantee, and no
+claim about the real SDK, hardware, or radio paths — those stay in their
+named gated tiers (``local_integration``, ``meshtastic_sdk``, ``live``,
+``hardware``, ``soak``).
 
 Delayed reader callbacks cannot rewind the reservation generation, and each
 callback captures the pool belonging to its session snapshot. Missing optional
