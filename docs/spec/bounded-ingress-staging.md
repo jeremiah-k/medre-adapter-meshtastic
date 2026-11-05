@@ -16,9 +16,13 @@ pre-scheduling reservation pool sized by `max_pending_ingress_callbacks`.
 The setting MUST be a positive integer; zero, negative, boolean, and
 non-integer values MUST be rejected by configuration validation. There MUST
 NOT be an unbounded mode. The default MUST be a finite value aligned with
-core's admission default; the shipped default (``100``) is provisional
-pending a measured-budget qualification round and MUST NOT be documented as
-a throughput guarantee.
+core's admission default; the shipped default (``100``) is provisional and
+MUST NOT be documented as a throughput guarantee. Justification note: the
+first measured qualification record for the bound — above-cap bursts,
+sustained imbalance, stop/restart capacity, and memory/reader-latency
+evidence on the synthetic SDK tier — is maintained in
+``docs/dev/ingress-pressure.md``; it evidences the staging bound and its
+loss-honest accounting, not a throughput or capacity budget.
 
 Reservation acquisition MUST NOT block the SDK reader thread: a reader
 thread MUST never park waiting for a staging slot. An acquire that cannot
