@@ -672,12 +672,12 @@ class TestMeshtasticAdapterTaskScheduling:
         assert t2.done()
 
     async def test_no_ensure_future(self) -> None:
-        """Verify _on_packet does not use asyncio.ensure_future."""
+        """The SDK reader must use thread-safe scheduling, never task creation."""
         import inspect
 
         source = inspect.getsource(MeshtasticAdapter._on_packet)
         assert "ensure_future" not in source
-        assert "create_task" in source
+        assert "run_coroutine_threadsafe" in source
 
 
 # ===================================================================

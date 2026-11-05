@@ -531,17 +531,19 @@ async def test_ordinary_packet_keeps_existing_deferred_feedback_contract(temp_st
 
 
 def test_max_text_parts_does_not_shift_existing_positional_configuration():
-    """The opt-in is appended after all established configuration fields."""
+    """Trailing opt-ins are appended after all established configuration fields."""
     from dataclasses import fields
 
     original = config()
+    trailing_opt_ins = ("max_text_parts", "max_pending_ingress_callbacks")
     old_arguments = [
         getattr(original, field.name)
         for field in fields(original)
-        if field.name != "max_text_parts"
+        if field.name not in trailing_opt_ins
     ]
     restored = MeshtasticConfig(*old_arguments)
     assert restored.max_text_parts == 1
+    assert restored.max_pending_ingress_callbacks == 100
     assert restored.max_text_bytes == original.max_text_bytes
     assert restored.detection_sensor_relay == original.detection_sensor_relay
 

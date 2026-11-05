@@ -108,6 +108,22 @@ class MeshtasticConfig:
     queue_max_size:
         Maximum number of adapter-local outbound items accepted before
         enqueue is rejected transiently. Default: ``1024``.
+    max_pending_ingress_callbacks:
+        Maximum number of relayable inbound packets the SDK reader thread
+        may stage toward admission at once. Each staged packet holds one
+        ``run_coroutine_threadsafe`` future; a packet arriving when every
+        slot is held is refused before scheduling: it is not admitted,
+        consumes no dedup or native identity, and is reported as explicit
+        ``callback_capacity`` overflow through the optional
+        ``report_producer_pressure`` sink plus the ``producer_overflow``
+        diagnostics counter. ACK/NAK, routing-correlation, and other
+        non-relay classifications never consume a slot.
+
+        The value is finite-only: there is no unbounded option, and
+        non-positive values are rejected by :meth:`validate`. Default:
+        ``100``, provisionally aligned with the core admission default.
+        The default is **provisional** pending the measured-budget
+        qualification round; it is not a throughput guarantee.
     queue_warning_threshold_pct:
         Queue-utilization percentage that enters advisory ``warning``
         pressure. Default: ``75``.
@@ -175,6 +191,7 @@ class MeshtasticConfig:
     disabled_portnums: frozenset[str] = field(default_factory=frozenset)
     detection_sensor_relay: bool = False
     max_text_parts: int = 1
+    max_pending_ingress_callbacks: int = 100
 
     def validate(self) -> Self:
         """Validate the configuration and return *self* for chaining.
@@ -265,6 +282,17 @@ class MeshtasticConfig:
         if self.queue_max_size <= 0:
             raise MeshtasticConfigError(
                 f"queue_max_size must be > 0, got {self.queue_max_size}"
+            )
+        if isinstance(self.max_pending_ingress_callbacks, bool) or not isinstance(
+            self.max_pending_ingress_callbacks, int
+        ):
+            raise MeshtasticConfigError(
+                "max_pending_ingress_callbacks must be a positive int"
+            )
+        if self.max_pending_ingress_callbacks <= 0:
+            raise MeshtasticConfigError(
+                f"max_pending_ingress_callbacks must be > 0, "
+                f"got {self.max_pending_ingress_callbacks}"
             )
         for field_name, value in (
             ("queue_warning_threshold_pct", self.queue_warning_threshold_pct),
