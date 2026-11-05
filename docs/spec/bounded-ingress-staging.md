@@ -29,9 +29,11 @@ obtain a slot MUST refuse the packet immediately.
 Only relayable text ingress MUST be bounded. ACK/NAK responses, native
 routing-correlation callbacks, observations, and other non-relay
 classifications MUST NOT consume staging slots and MUST NOT be throttled,
-delayed, or discarded by staging pressure. The bound MUST apply after the
-relay gate and startup-backlog suppression gate, so suppressed and
-non-relay packets never consume capacity.
+delayed, or discarded by staging pressure. The bound MUST apply immediately
+after the relay gate and startup-backlog suppression gate, before node
+enrichment and codec decoding, so producer-refused packets avoid those costs.
+A reservation MUST be returned on decoding errors and if scheduling cannot
+proceed because the owner loop is unavailable.
 
 ## Overflow semantics
 
@@ -40,9 +42,12 @@ consume dedup state or native identity. The refusal MUST be explicit,
 loss-honest accounting: the adapter MUST increment a `producer_overflow`
 diagnostics counter, report an `overflow` producer-pressure fact with
 reason `callback_capacity` through the optional
-`AdapterContext.report_producer_pressure` sink when present, and log one
-line containing no message text, no sender identity, and no key material.
-The refusal MUST NOT imply admission, authorise retry or resend, or route
+`AdapterContext.report_producer_pressure` sink when present. The first refusal
+of a session MUST emit a content-free warning, and later warnings SHOULD be
+rate-limited to at most one per five seconds with a cumulative refused count.
+Every refusal MUST still increment the counter and report pressure even when
+its warning is suppressed. Warnings MUST NOT include message text, sender
+identity, or key material. The refusal MUST NOT imply admission, authorise retry or resend, or route
 the packet through any side queue or adapter-local store.
 
 ## Reported outcomes
@@ -54,8 +59,8 @@ producer-pressure sink using the closed core vocabulary:
   was acquired. Count 1 per staged packet.
 - `overflow` — the reservation was refused. Count 1 per refused packet with
   reason `callback_capacity`.
-- `cancelled_before_admission` — a staged publication was cancelled before
-  `publish_inbound` returned, for example by stop-drain. Stop-drain SHOULD
+- `cancelled_before_admission` — a staged submission was cancelled before
+  its publication attempt began, for example by stop-drain. Stop-drain SHOULD
   report one coalesced report naming the cancelled count instead of one
   report per future.
 
@@ -76,3 +81,14 @@ inheriting stale slots. Releases captured by a retired pool MUST NOT grant
 capacity to a newer pool. The callback-after-stop fence MUST remain
 intact: a reader-thread callback arriving after stop MUST neither schedule
 a submission nor consume a reservation.
+
+A delayed callback MUST NOT rewind the reservation pool to an older connection
+generation or replenish an exhausted current-generation budget. Each callback
+MUST capture its reservation pool with its session snapshot so restart cannot
+redirect a retired reader's reservation to the replacement pool.
+
+Cancellation of a running publisher or its cross-thread future MUST NOT be
+interpreted as evidence that admission never began. Stop-drain MUST report
+`cancelled_before_admission` only for submissions whose publication attempt is
+known not to have started. Cancellation after that boundary is ambiguous and
+MUST NOT be projected into that outcome, even if publish has not returned.

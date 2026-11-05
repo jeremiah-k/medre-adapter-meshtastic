@@ -135,7 +135,6 @@ from medre.core.contracts.adapter import (
     AdapterPermanentError,
     AdapterRole,
     AdapterSendError,
-    ProducerPressureReport,
 )
 from medre.adapters.meshtastic.guarded import GuardedQueuedSend
 from medre.core.contracts.delivery import (
@@ -149,6 +148,11 @@ from medre.core.policies.startup_backlog_suppress import (
 )
 from medre.core.rendering.renderer import RenderingResult
 from medre.core.supervision.diagnostic_contract import QUEUE_PENDING
+
+try:
+    from medre.core.contracts.adapter import ProducerPressureReport
+except ImportError:
+    ProducerPressureReport = None  # type: ignore[assignment,misc]
 
 
 def _is_native_routing_callback(classification: ClassificationResult) -> bool:
@@ -194,11 +198,15 @@ class _IngressStagingReservations:
         """Take one staging slot without blocking.
 
         Returns a one-shot releaser bound to the exact pool that issued
-        the slot, or ``None`` when every slot is currently held. When
-        *generation* differs from the pool's, the pool is reset first so
-        the caller's session state owns a full, private capacity.
+        the slot, or ``None`` when full or called by a retired generation.
+        A newer generation resets the pool; an older generation cannot
+        replenish current capacity.
         """
         with self._lock:
+            if self._generation is not None and (
+                generation is None or generation < self._generation
+            ):
+                return None
             if generation != self._generation:
                 self._generation = generation
                 self._slots = threading.Semaphore(self._capacity)
@@ -285,6 +293,9 @@ class MeshtasticAdapter(AdapterContract):
         self._send_correlation = self._new_send_correlation()
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._inbound_futures: set[concurrent.futures.Future[object]] = set()
+        self._inbound_admission_started: dict[
+            concurrent.futures.Future[object], threading.Event
+        ] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._drain_task: asyncio.Task[Any] | None = None
         # Bounded reader-thread staging: slots held by staged-but-unfinished
@@ -313,6 +324,7 @@ class MeshtasticAdapter(AdapterContract):
         # Producer-side pressure evidence — explicit, counted staging loss.
         # Cumulative across sessions, like the classifier counters.
         self._producer_overflow: int = 0
+        self._last_overflow_warning_at: float = float("-inf")
 
         # Startup backlog suppression
         self._adapter_start_epoch: float | None = None
@@ -376,6 +388,7 @@ class MeshtasticAdapter(AdapterContract):
         self._ingress_reservations = _IngressStagingReservations(
             self._config.max_pending_ingress_callbacks
         )
+        self._last_overflow_warning_at = float("-inf")
 
         # Clear cached health at lifecycle boundary so diagnostics
         # never reports a stale health string from a previous session.
@@ -915,6 +928,7 @@ class MeshtasticAdapter(AdapterContract):
             return
 
         try:
+            reservations = self._ingress_reservations
             session = self._session
             connection_generation = (
                 session.connection_generation if session is not None else None
@@ -944,52 +958,51 @@ class MeshtasticAdapter(AdapterContract):
                 self._startup_backlog_packets_suppressed += 1
                 return
 
-            # Enrich longname/shortname via the session's node database.
-            # Text message packets don't carry user info; that comes from
-            # separate NODEINFO_APP packets.  The codec handles embedding
-            # into native metadata when node_info is provided.
-            node_info = self._enrich_with_node_info(packet)
-            canonical = self._codec.decode(packet, node_info=node_info)
-            # Schedule the async publish — _on_packet is called from the
-            # Meshtastic SDK reader thread, so we use run_coroutine_threadsafe
-            # instead of asyncio.create_task (which requires a running loop
-            # in the current thread).  The resulting Future is tracked in
-            # _inbound_futures so that stop() can drain/cancel it.
-            if self._loop is None or self._loop.is_closed():
-                return
-            # Bounded pre-scheduling reservation.  Only relayable text
-            # reaches this point; ACK/NAK and routing-correlation paths
-            # returned earlier and are never throttled.  The reader thread
-            # must never park waiting for a slot: the acquire is
-            # non-blocking and a refusal becomes explicit, counted loss
-            # before any scheduling, admission, or dedup consumption.
-            reservations = self._ingress_reservations
-            if reservations is None:
-                return
+            # Reserve immediately after the relay and startup-backlog gates.
+            # Refused packets never pay for node enrichment or codec decode
+            # on the SDK reader thread; ACK/NAK and routing correlation are
+            # handled above without consuming a slot.
             release = reservations.acquire(connection_generation)
             if release is None:
                 self._record_ingress_overflow()
                 return
             try:
-                future: concurrent.futures.Future[object] = (
-                    asyncio.run_coroutine_threadsafe(
-                        self._on_packet_async(
-                            canonical,
-                            session=session,
-                            connection_generation=connection_generation,
-                        ),
-                        self._loop,
-                    )
+                # Text packets contain no NODEINFO_APP user labels. Embed
+                # available node names into metadata only after admission
+                # to the bounded staging pool succeeds.
+                node_info = self._enrich_with_node_info(packet)
+                canonical = self._codec.decode(packet, node_info=node_info)
+                loop = self._loop
+                if loop is None or loop.is_closed():
+                    release()
+                    return
+                # The reader thread cannot create asyncio tasks directly.
+                # Close the coroutine if submission fails after creation
+                # (e.g. loop closes between the check and scheduling).
+                admission_started = threading.Event()
+                publish = self._on_packet_async(
+                    canonical,
+                    session=session,
+                    connection_generation=connection_generation,
+                    admission_started=admission_started,
                 )
-            except Exception:
-                # Scheduling failed (e.g. the loop closed between the check
-                # and the submission); the slot would otherwise leak.
+                try:
+                    future: concurrent.futures.Future[object] = (
+                        asyncio.run_coroutine_threadsafe(publish, loop)
+                    )
+                except BaseException:
+                    publish.close()
+                    raise
+            except BaseException:
                 release()
                 raise
+            self._inbound_admission_started[future] = admission_started
             self._inbound_futures.add(future)
-            future.add_done_callback(
-                lambda done, release=release: self._finish_inbound_future(done, release)
-            )
+
+            def retire_submission(done: concurrent.futures.Future[object]) -> None:
+                self._finish_inbound_future(done, release)
+
+            future.add_done_callback(retire_submission)
             self._report_producer_pressure("scheduled")
         except Exception:
             if self.ctx is not None:
@@ -1004,6 +1017,7 @@ class MeshtasticAdapter(AdapterContract):
         *,
         session: MeshtasticSession | None = None,
         connection_generation: int | None = None,
+        admission_started: threading.Event | None = None,
     ) -> None:
         """Async handler for packets received via :meth:`_on_packet`.
 
@@ -1030,6 +1044,8 @@ class MeshtasticAdapter(AdapterContract):
                 ):
                     return
             if self.ctx is not None and self._started:
+                if admission_started is not None:
+                    admission_started.set()
                 await self.publish_inbound(canonical)
                 self._inbound_published += 1
         except Exception:
@@ -1051,6 +1067,7 @@ class MeshtasticAdapter(AdapterContract):
         exactly one release and no slot leaks on any terminal state.
         """
         self._inbound_futures.discard(future)
+        self._inbound_admission_started.pop(future, None)
         release()
 
     def _record_ingress_overflow(self) -> None:
@@ -1059,17 +1076,22 @@ class MeshtasticAdapter(AdapterContract):
         The refused packet was never scheduled and never admitted: no
         dedup state and no native identity was consumed. The loss is made
         visible — counted in ``producer_overflow`` diagnostics, reported
-        through the optional producer-pressure sink, and logged once with
-        no message content and no sender identity. The refusal implies no
+        through the optional producer-pressure sink. Warning logs are
+        rate-limited and include the cumulative count, without message
+        content or sender identity. The refusal implies no
         admission and no retry; the packet is simply gone.
         """
         self._producer_overflow += 1
         if self.ctx is not None:
-            self.ctx.logger.warning(
-                "MeshtasticAdapter %s: reader-thread ingress staging refused "
-                "reason=callback_capacity",
-                self.adapter_id,
-            )
+            now = time.monotonic()
+            if now - self._last_overflow_warning_at >= 5.0:
+                self._last_overflow_warning_at = now
+                self.ctx.logger.warning(
+                    "MeshtasticAdapter %s: reader-thread ingress staging refused "
+                    "reason=callback_capacity total_refused=%d",
+                    self.adapter_id,
+                    self._producer_overflow,
+                )
         self._report_producer_pressure("overflow", reason="callback_capacity")
 
     def _report_producer_pressure(
@@ -1091,7 +1113,7 @@ class MeshtasticAdapter(AdapterContract):
         if ctx is None:
             return
         report = getattr(ctx, "report_producer_pressure", None)
-        if report is None:
+        if report is None or ProducerPressureReport is None:
             return
         try:
             report(
@@ -1393,13 +1415,16 @@ class MeshtasticAdapter(AdapterContract):
         """
         # --- Drain inbound futures (run_coroutine_threadsafe) ---
         # Cancel any that haven't started; suppress results from the rest.
-        # Each future that actually transitions to cancelled names a staged
-        # publication that will not return from publish_inbound; the loss
-        # is reported once as a coalesced cancelled_before_admission count
-        # instead of one report per future.
+        # Only a submission known not to have entered publication supplies
+        # a pre-admission cancellation fact. A cancelled cross-thread future
+        # cannot establish absence of durable admission by a running publisher.
+        # Coalesce the known pre-publication cancellations into one report.
         cancelled_staged = 0
         for future in list(self._inbound_futures):
-            if future.cancel():
+            # A cancelled concurrent future says nothing about admission by
+            # a publisher that has already started (or suppresses cancellation).
+            started = self._inbound_admission_started.get(future)
+            if future.cancel() and started is not None and not started.is_set():
                 cancelled_staged += 1
         self._inbound_futures.clear()
         if cancelled_staged:

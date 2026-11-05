@@ -31,7 +31,8 @@ flow control, and an unbounded pending-future set was the measured result.
 Relayable ingress is bounded **before** scheduling. A finite per-session
 reservation pool sized by `max_pending_ingress_callbacks` (default ``100``)
 holds one slot per staged packet, and the reader thread stages a packet only
-when a slot is free:
+when a slot is free. Capacity is checked after relay/backlog classification but
+before node enrichment and codec decoding:
 
 - Acquisition is non-blocking. The SDK reader thread never parks waiting for
   a slot.
@@ -39,12 +40,15 @@ when a slot is free:
   dedup state or native identity. The refusal is explicit loss: it is counted
   in the `producer_overflow` diagnostics counter, reported as an `overflow`
   producer-pressure report with reason `callback_capacity` through the
-  optional `report_producer_pressure` sink, and logged once with no message
-  content and no sender identity. There is no retry, no side queue, and no
-  admission implication — the packet is gone.
+  optional `report_producer_pressure` sink. The first refusal of each session
+  emits a content-free warning; later warnings are limited to at most one per
+  five seconds, showing the cumulative count. Every refusal remains counted
+  and reported, even when its warning is suppressed. There is no retry, side
+  queue or admission implication — the packet is gone.
 - A staged packet reports `scheduled` (count 1) through the same sink. When
-  stop-drain cancels staged publications before `publish_inbound` returns,
-  one coalesced `cancelled_before_admission` report names the count.
+  stop-drain cancels submissions before their publication attempt begins,
+  one coalesced `cancelled_before_admission` report names only submissions
+  known not to have entered publication. Running cancellation is ambiguous.
 - The reservation is released on completion, error, cancellation, and stop.
   Reservations are session-exact: `stop()` and a reconnect (connection
   generation change) retire all held slots, and a new session starts from
@@ -60,3 +64,14 @@ throughput guarantee. The value is finite-only: non-positive values are
 rejected by configuration validation, and there is no unbounded option.
 
 The outbound paced queue's capacity is a separate contract.
+
+Delayed reader callbacks cannot rewind the reservation generation, and each
+callback captures the pool belonging to its session snapshot. Missing optional
+report types on compatible older cores leave the local bound and counters
+functional. Cancellation of a running publisher is not negative admission proof;
+it does not contribute to `cancelled_before_admission`.
+
+The bound covers tracked cross-thread submissions per reservation generation.
+A cancelled future can become terminal before its underlying coroutine exits,
+and reconnect installs fresh capacity. A process-wide limit on surviving,
+cancellation-resistant publishers is not established by this staging bound.

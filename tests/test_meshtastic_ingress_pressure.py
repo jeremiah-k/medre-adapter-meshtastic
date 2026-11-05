@@ -3,8 +3,8 @@
 These tests pin the pre-scheduling reservation that bounds relayable
 Meshtastic ingress: a held canonical publisher pins staged work so exact
 refusal counts can be observed from a synthetic SDK reader thread. Every
-refusal is counted, reported through the producer-pressure seam, and
-logged content-free — no packet is silently dropped, and no refusal
+refusal is counted and reported through the producer-pressure seam;
+content-free warning summaries are rate-limited without hiding counts. No refusal
 implies admission or a retry.
 
 The pre-cap measurements recorded in ``docs/dev/ingress-pressure.md`` were
@@ -26,7 +26,12 @@ from unittest.mock import Mock
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import AdapterContext, ProducerPressureReport
+from medre.core.contracts.adapter import AdapterContext
+
+try:
+    from medre.core.contracts.adapter import ProducerPressureReport
+except ImportError:
+    ProducerPressureReport = None
 from medre_meshtastic_tests.helpers.async_utils import wait_until
 
 
@@ -81,16 +86,16 @@ async def _start(
     reports: list[ProducerPressureReport] | None = None,
 ) -> None:
     """Start the adapter in fake mode with an optional producer-pressure sink."""
-    await adapter.start(
-        AdapterContext(
-            adapter_id=adapter.adapter_id,
-            publish_inbound=publish,
-            logger=logging.getLogger(f"test.meshtastic.ingress.{adapter.adapter_id}"),
-            clock=lambda: datetime.now(UTC),
-            shutdown_event=asyncio.Event(),
-            report_producer_pressure=(reports.append if reports is not None else None),
-        )
+    ctx = AdapterContext(
+        adapter_id=adapter.adapter_id,
+        publish_inbound=publish,
+        logger=logging.getLogger(f"test.meshtastic.ingress.{adapter.adapter_id}"),
+        clock=lambda: datetime.now(UTC),
+        shutdown_event=asyncio.Event(),
     )
+    if reports is not None:
+        ctx.report_producer_pressure = reports.append
+    await adapter.start(ctx)
 
 
 async def test_default_cap_stages_exactly_capacity_and_counts_overflow() -> None:
@@ -154,6 +159,195 @@ async def test_default_cap_stages_exactly_capacity_and_counts_overflow() -> None
         _report(256, 100, 156, len(published), time.perf_counter() - start)
     finally:
         gate.set()
+        await adapter.stop()
+
+
+async def test_overflow_warnings_are_coalesced_without_losing_pressure(caplog) -> None:
+    """One content-free warning per interval, but one fact per refused packet."""
+    gate = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def publish(_event) -> None:
+        entered.set()
+        await gate.wait()
+
+    reports: list[ProducerPressureReport] = []
+    adapter = MeshtasticAdapter(
+        MeshtasticConfig(
+            adapter_id="ingress-warning-cap",
+            connection_type="fake",
+            max_pending_ingress_callbacks=1,
+        )
+    )
+    await _start(adapter, publish, reports)
+    try:
+        await asyncio.to_thread(adapter._on_packet, _packet(0))
+        await asyncio.wait_for(entered.wait(), 5)
+        with caplog.at_level(
+            logging.WARNING, logger="test.meshtastic.ingress.ingress-warning-cap"
+        ):
+            await asyncio.to_thread(
+                lambda: [adapter._on_packet(_packet(i)) for i in range(1, 65)]
+            )
+            assert adapter.diagnostics()["producer_overflow"] == 64
+            adapter._last_overflow_warning_at -= 6.0
+            await asyncio.to_thread(adapter._on_packet, _packet(65))
+
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+            and "reader-thread ingress staging refused" in record.getMessage()
+        ]
+        assert len(warnings) == 2
+        assert "total_refused=1" in warnings[0]
+        assert "total_refused=65" in warnings[1]
+        assert all("pressure-source" not in message for message in warnings)
+        assert all("pressure 65" not in message for message in warnings)
+        assert adapter.diagnostics()["producer_overflow"] == 65
+        assert sum(report.outcome == "overflow" for report in reports) == 65
+    finally:
+        gate.set()
+        await adapter.stop()
+
+
+async def test_capacity_refusal_skips_node_lookup_and_codec(monkeypatch) -> None:
+    """The already-full reader-thread path never enriches or decodes a packet."""
+    gate = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def publish(_event) -> None:
+        entered.set()
+        await gate.wait()
+
+    adapter = MeshtasticAdapter(
+        MeshtasticConfig(
+            adapter_id="ingress-no-decode",
+            connection_type="fake",
+            max_pending_ingress_callbacks=1,
+        )
+    )
+    await _start(adapter, publish)
+    try:
+        await asyncio.to_thread(adapter._on_packet, _packet(0))
+        await asyncio.wait_for(entered.wait(), 5)
+        enrich = Mock(side_effect=AssertionError("enrichment after refusal"))
+        decode = Mock(side_effect=AssertionError("decode after refusal"))
+        monkeypatch.setattr(adapter, "_enrich_with_node_info", enrich)
+        monkeypatch.setattr(adapter._codec, "decode", decode)
+        await asyncio.to_thread(adapter._on_packet, _packet(1))
+        enrich.assert_not_called()
+        decode.assert_not_called()
+        assert adapter.diagnostics()["producer_overflow"] == 1
+        assert len(adapter._inbound_futures) == 1
+    finally:
+        gate.set()
+        await adapter.stop()
+
+
+async def test_decode_failure_releases_prescheduling_reservation(
+    monkeypatch, caplog
+) -> None:
+    """A failed decoder must not strand reader-thread capacity."""
+    gate = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def publish(_event) -> None:
+        entered.set()
+        await gate.wait()
+
+    adapter = MeshtasticAdapter(
+        MeshtasticConfig(
+            adapter_id="ingress-decode-fail",
+            connection_type="fake",
+            max_pending_ingress_callbacks=1,
+        )
+    )
+    await _start(adapter, publish)
+    try:
+        decode = adapter._codec.decode
+        monkeypatch.setattr(
+            adapter._codec, "decode", Mock(side_effect=ValueError("bad packet"))
+        )
+        with caplog.at_level(logging.ERROR):
+            await asyncio.to_thread(adapter._on_packet, _packet(0))
+        assert not adapter._inbound_futures
+        assert adapter.diagnostics()["producer_overflow"] == 0
+        monkeypatch.setattr(adapter._codec, "decode", decode)
+        await asyncio.to_thread(adapter._on_packet, _packet(1))
+        await asyncio.wait_for(entered.wait(), 5)
+        assert len(adapter._inbound_futures) == 1
+    finally:
+        gate.set()
+        await adapter.stop()
+
+
+async def test_failed_scheduling_closes_coroutine_and_releases_slot(
+    monkeypatch, caplog
+) -> None:
+    """An event-loop closure race neither leaks a coroutine nor a reservation."""
+    adapter = MeshtasticAdapter(
+        MeshtasticConfig(
+            adapter_id="ingress-loop-race",
+            connection_type="fake",
+            max_pending_ingress_callbacks=1,
+        )
+    )
+
+    async def publish(_event) -> None:
+        raise AssertionError("must never publish after failed scheduling")
+
+    await _start(adapter, publish)
+    try:
+        created = []
+
+        def reject_submission(coro, _loop):
+            created.append(coro)
+            raise RuntimeError("event loop closed during submission")
+
+        monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", reject_submission)
+        with caplog.at_level(logging.ERROR):
+            await asyncio.to_thread(adapter._on_packet, _packet(0))
+        assert len(created) == 1 and created[0].cr_frame is None
+        assert not adapter._inbound_futures
+        assert adapter.diagnostics()["producer_overflow"] == 0
+        assert adapter._session is not None
+        release = adapter._ingress_reservations.acquire(
+            adapter._session.connection_generation
+        )
+        assert release is not None
+        release()
+    finally:
+        await adapter.stop()
+
+
+async def test_missing_loop_releases_slot_before_return() -> None:
+    """No owner loop does not strand the reservation acquired before decode."""
+    adapter = MeshtasticAdapter(
+        MeshtasticConfig(
+            adapter_id="ingress-no-loop",
+            connection_type="fake",
+            max_pending_ingress_callbacks=1,
+        )
+    )
+
+    async def publish(_event) -> None:
+        raise AssertionError("must not publish without a loop")
+
+    await _start(adapter, publish)
+    loop = adapter._loop
+    try:
+        adapter._loop = None
+        await asyncio.to_thread(adapter._on_packet, _packet(0))
+        assert not adapter._inbound_futures
+        assert adapter._session is not None
+        release = adapter._ingress_reservations.acquire(
+            adapter._session.connection_generation
+        )
+        assert release is not None
+        release()
+    finally:
+        adapter._loop = loop
         await adapter.stop()
 
 
@@ -296,10 +490,10 @@ async def test_failed_publication_returns_its_reservation() -> None:
         await adapter.stop()
 
 
-async def test_stop_reports_coalesced_cancellation_and_restart_gets_full_capacity() -> (
+async def test_stop_preserves_admission_uncertainty_and_restart_gets_full_capacity() -> (
     None
 ):
-    """Stop-drain reports one coalesced count; a restart stages from full."""
+    """Running cancellation is ambiguous; a restart stages from full capacity."""
     gate = asyncio.Event()
     gates = {"active": gate}
     entered: list[asyncio.Task] = []
@@ -340,14 +534,11 @@ async def test_stop_reports_coalesced_cancellation_and_restart_gets_full_capacit
         await asyncio.wait_for(cancelled.wait(), 5)
         await asyncio.gather(*entered, return_exceptions=True)
 
-        # Exactly one coalesced report names both cancelled publications.
+        # Both publishers started; cancellation cannot establish non-admission.
         cancelled_reports = [
             r for r in reports if r.outcome == "cancelled_before_admission"
         ]
-        assert len(cancelled_reports) == 1
-        assert cancelled_reports[0].count == 2
-        assert cancelled_reports[0].reason is None
-        assert cancelled_reports[0].adapter_id == adapter.adapter_id
+        assert cancelled_reports == []  # Both publishers had already started.
         assert not adapter._inbound_futures
     finally:
         gate.set()
@@ -556,8 +747,9 @@ async def test_stop_fences_reader_callbacks_with_pending_publications(
         cancelled_reports = [
             r for r in reports if r.outcome == "cancelled_before_admission"
         ]
-        assert len(cancelled_reports) == 1
-        assert cancelled_reports[0].count == 1
+        assert (
+            cancelled_reports == []
+        )  # Running cancellation is not non-admission proof.
         gate.set()
         schedule = Mock(wraps=asyncio.run_coroutine_threadsafe)
         monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", schedule)
@@ -571,4 +763,62 @@ async def test_stop_fences_reader_callbacks_with_pending_publications(
         for task in publishers:
             task.cancel()
         await asyncio.gather(*publishers, return_exceptions=True)
+        await adapter.stop()
+
+
+def test_stale_generation_does_not_reset_active_staging_capacity():
+    """A delayed reader cannot rewind a pool and replenish an exhausted budget."""
+    from medre.adapters.meshtastic.adapter import _IngressStagingReservations
+
+    pool = _IngressStagingReservations(1)
+    release = pool.acquire(2)
+    assert release is not None
+    assert pool.acquire(1) is None
+    assert pool.acquire(None) is None
+    assert pool.acquire(2) is None
+    release()
+    current = pool.acquire(2)
+    assert current is not None
+    current()
+
+
+async def test_missing_report_type_keeps_local_overflow_accounting(monkeypatch):
+    """Older cores without the optional report model retain bounded behavior."""
+    from medre.adapters.meshtastic import adapter as module
+
+    monkeypatch.setattr(module, "ProducerPressureReport", None)
+    reports = []
+    adapter = MeshtasticAdapter(MeshtasticConfig(adapter_id="old-core"))
+    await _start(adapter, lambda event: None, reports)
+    try:
+        adapter._record_ingress_overflow()
+        assert adapter.diagnostics()["producer_overflow"] == 1
+        assert reports == []
+    finally:
+        await adapter.stop()
+
+
+async def test_unstarted_future_cancellation_reports_only_known_pre_admission():
+    """A queued future with no publication attempt supplies a negative fact."""
+    import concurrent.futures
+    import threading
+
+    adapter = MeshtasticAdapter(MeshtasticConfig(adapter_id="unstarted"))
+    reports = []
+    await _start(adapter, lambda event: None, reports)
+    try:
+        future = concurrent.futures.Future()
+        adapter._inbound_futures.add(future)
+        adapter._inbound_admission_started[future] = threading.Event()
+        future.add_done_callback(
+            lambda done: adapter._finish_inbound_future(done, lambda: None)
+        )
+        await adapter._drain_background_tasks(timeout=0)
+        assert future.cancelled()
+        assert (
+            sum(r.count for r in reports if r.outcome == "cancelled_before_admission")
+            == 1
+        )
+        assert not adapter._inbound_admission_started
+    finally:
         await adapter.stop()
