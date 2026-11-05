@@ -30,7 +30,12 @@ import tracemalloc
 from datetime import UTC, datetime
 from pathlib import Path
 
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+import pytest
+
+from medre.adapters.meshtastic.adapter import (
+    MeshtasticAdapter,
+    _IngressStagingReservations,
+)
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import AdapterContext
 
@@ -38,6 +43,10 @@ try:
     from medre.core.contracts.adapter import ProducerPressureReport
 except ImportError:
     ProducerPressureReport = None
+
+pytestmark = pytest.mark.skipif(
+    ProducerPressureReport is None, reason="core lacks producer-pressure reporting"
+)
 
 DEFAULT_CAP = 100
 _SOURCE_ID = "!process-lifetime-source"
@@ -52,6 +61,12 @@ _BURST_ROTATION = (
 _MEMORY_EXTRA_LIMIT = 256_000
 _CYCLE_TIMEOUT = 10.0
 _QUAL_LOGGER = "test.meshtastic.process-lifetime"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_qualification_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exclude captured logs from retention measurements, restoring caller state."""
+    monkeypatch.setattr(logging.getLogger(_QUAL_LOGGER), "propagate", False)
 
 
 def _packet(index: int) -> dict:
@@ -172,10 +187,6 @@ async def _start_cycle(
         clock=lambda: datetime.now(UTC),
         shutdown_event=asyncio.Event(),
     )
-    # Qualification log records are orthogonal to the staging contract;
-    # disabling propagation keeps retained-tracing measurements scoped to
-    # adapter state instead of test-harness log capture.
-    ctx.logger.propagate = False
     ctx.report_producer_pressure = reports.append
     await adapter.start(ctx)
 
@@ -187,14 +198,14 @@ async def _run_restart_cycle(
     packet_base: int,
     cumulative_overflow: int,
     prior_held: list,
-) -> tuple[dict, list]:
+) -> tuple[dict, _IngressStagingReservations, list]:
     """Run one start/burst/stop restart cycle and reconcile it exactly.
 
     The burst runs on a joined reader thread with publication held, so the
     stop retires a pool stranded at full capacity. Returns the cycle record
-    and the one-shot releasers held back from the retired pool; the next
-    cycle fires them after its own start to prove late releases land in the
-    dead pool only.
+    and its exact retired pool plus the one-shot releasers held back
+    from that same pool; the next cycle fires those releasers after its
+    own start to prove they land in the dead pool only.
     """
     holder = _make_holder()
     reports: list[ProducerPressureReport] = []
@@ -288,7 +299,7 @@ async def _run_restart_cycle(
         "overflow": totals["overflow"],
         "cancelled_before_admission": totals["cancelled_before_admission"],
     }
-    return record, held
+    return record, pool, held
 
 
 async def test_restart_cycles_start_full_stage_exact_and_retire_completely() -> None:
@@ -320,35 +331,41 @@ async def test_restart_cycles_start_full_stage_exact_and_retire_completely() -> 
     cumulative_overflow = 0
     total_frames = 0
 
-    for cycle in range(_WARMUP_CYCLES):
-        burst = _BURST_ROTATION[cycle % len(_BURST_ROTATION)]
-        record, held = await _run_restart_cycle(
-            adapter,
-            burst=burst,
-            packet_base=packet_cursor,
-            cumulative_overflow=cumulative_overflow,
-            prior_held=held,
-        )
-        packet_cursor += burst
-        total_frames += burst
-        cumulative_overflow += record["overflow"]
-        pools.append((adapter._ingress_reservations, record["generation"]))
-
     total_scheduled = 0
     total_overflow = 0
     total_burst = 0
     try:
-        # Warmup traffic records are throwaway; the measured baseline below
-        # observes the settled process state, not test bookkeeping.
+        for cycle in range(_WARMUP_CYCLES):
+            burst = _BURST_ROTATION[cycle % len(_BURST_ROTATION)]
+            record, pool, held = await _run_restart_cycle(
+                adapter,
+                burst=burst,
+                packet_base=packet_cursor,
+                cumulative_overflow=cumulative_overflow,
+                prior_held=held,
+            )
+            packet_cursor += burst
+            total_frames += burst
+            cumulative_overflow += record["overflow"]
+            pools.append((pool, record["generation"]))
+
+        # Warm-up records are throwaway. Verify the exact retired pools
+        # first, then drop their test-owned references before the memory
+        # baseline. The final measurement drops measured pool references
+        # under the same ownership conditions.
         for release in held:
             release()
         held = []
+        for retired_pool, generation in pools:
+            assert _pool_has_exactly(retired_pool, generation, DEFAULT_CAP)
+        pools.clear()
+        del retired_pool, pool, release
         gc.collect()
         baseline = tracemalloc.get_traced_memory()[0]
 
         for cycle in range(_RESTART_CYCLES):
             burst = _BURST_ROTATION[cycle % len(_BURST_ROTATION)]
-            record, held = await _run_restart_cycle(
+            record, pool, held = await _run_restart_cycle(
                 adapter,
                 burst=burst,
                 packet_base=packet_cursor,
@@ -362,7 +379,7 @@ async def test_restart_cycles_start_full_stage_exact_and_retire_completely() -> 
             total_overflow += record["overflow"]
             total_burst += record["burst"]
             bursts.append(record["burst"])
-            pools.append((adapter._ingress_reservations, record["generation"]))
+            pools.append((pool, record["generation"]))
 
         # The final cycle's late releasers fire against its retired pool
         # with the adapter stopped; they can reach nothing else.
@@ -382,9 +399,9 @@ async def test_restart_cycles_start_full_stage_exact_and_retire_completely() -> 
         assert total_scheduled == _RESTART_CYCLES * DEFAULT_CAP
         assert total_overflow == total_burst - total_scheduled
 
-        # Every retired pool across the whole run — warmup and measured —
-        # still holds exactly its full capacity: no slot was lost from any
-        # dead pool and no late release over-granted any other pool.
+        # Every retired pool in the measured run still holds exactly
+        # its full capacity; warm-up pools were audited before baseline.
+        # No slot was lost and no late release over-granted another pool.
         for pool, generation in pools:
             assert _pool_has_exactly(pool, generation, DEFAULT_CAP)
 
@@ -393,6 +410,7 @@ async def test_restart_cycles_start_full_stage_exact_and_retire_completely() -> 
         # retired pools stay held for the sweep above and are freed last.
         bursts.clear()
         pools.clear()
+        del pool, release
         gc.collect()
         retained = tracemalloc.get_traced_memory()[0]
 
@@ -426,5 +444,32 @@ async def test_restart_cycles_start_full_stage_exact_and_retire_completely() -> 
     finally:
         for release in held:
             release()
-        if started_tracing:
-            tracemalloc.stop()
+        try:
+            # A failing warm-up or measured cycle may leave the session
+            # running; stop it even when an assertion failed mid-cycle.
+            await adapter.stop()
+        finally:
+            if started_tracing:
+                tracemalloc.stop()
+
+
+async def test_failed_warmup_stops_the_session_and_test_owned_tracing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure before the baseline still runs the lifecycle cleanup."""
+    adapter_used: list[MeshtasticAdapter] = []
+    prior_tracing = tracemalloc.is_tracing()
+
+    async def abort_during_warmup(adapter: MeshtasticAdapter, **kwargs: object) -> None:
+        adapter_used.append(adapter)
+        await _start_cycle(adapter, _make_holder(), [])
+        raise RuntimeError("injected warmup failure")
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_run_restart_cycle", abort_during_warmup
+    )
+    with pytest.raises(RuntimeError, match="injected warmup failure"):
+        await test_restart_cycles_start_full_stage_exact_and_retire_completely()
+    assert len(adapter_used) == 1
+    assert adapter_used[0]._started is False
+    assert tracemalloc.is_tracing() is prior_tracing
