@@ -9,13 +9,17 @@ has a distinct native ID and passes the actual classifier/codec path.
 `tests/test_meshtastic_sustained_ingress.py` extends that suite with the
 sustained-ingress qualification record below: above-cap bursts, a sustained
 imbalance cycle, stop/restart under full staging, and memory/latency evidence.
+`tests/test_meshtastic_process_lifetime_ingress.py` extends the record across
+restart cycles in one process: exact per-cycle staging ledgers, retired-pool
+isolation under late releasers, and whole-process memory guards.
 
 Run the boundary tests without a radio or network:
 
 ```sh
 MEDRE_PRESSURE_REPORT_DIR=./pressure-results pytest \
   tests/test_meshtastic_ingress_pressure.py \
-  tests/test_meshtastic_sustained_ingress.py -q
+  tests/test_meshtastic_sustained_ingress.py \
+  tests/test_meshtastic_process_lifetime_ingress.py -q
 ```
 
 ## Pre-cap measurements (historical)

@@ -96,3 +96,33 @@ interpreted as evidence that admission never began. Stop-drain MUST report
 `cancelled_before_admission` only for submissions whose publication attempt is
 known not to have started. Cancellation after that boundary is ambiguous and
 MUST NOT be projected into that outcome, even if publish has not returned.
+
+## Process-lifetime qualification
+
+The staging contract is qualified across repeated adapter restart cycles in
+one process, not only within a single session. The restart-cycle suite in
+`tests/test_meshtastic_process_lifetime_ingress.py` runs warm-up and measured
+restart cycles against one adapter instance in `connection_type="fake"`, each
+cycle driving an above-cap burst with publication held so every stop retires a
+pool stranded at full capacity. The suite pins:
+
+- every replacement session starts from exactly full capacity and stages
+  exactly the bound while refusing exactly the surplus, with per-cycle
+  producer-pressure totals reconciled through a fresh sink;
+- every stop returns the stranded reservations in full: pending futures,
+  admission trackers, and background tasks return to exact zero by count, and
+  the retired pool is behaviorally full again;
+- late one-shot releasers fired after a replacement session has started
+  release into the retired pool only and grant the live pool nothing; a
+  retired pool refuses generation-less acquires;
+- refusal accounting is frozen between sessions, and every retired pool
+  across the whole run still holds exactly its full capacity;
+- the whole process retains a bounded footprint across the run under
+  `tracemalloc`: retained bytes stay under both a doubling of the post-warm-up
+  baseline and a fixed extra budget, with the exact counters above carrying
+  the primary proof.
+
+This is a boundedness and loss-honesty record on the synthetic SDK tier:
+synthetic frames run through the real classifier and codec. It makes no
+real-SDK, hardware, RF, or throughput claim, and no capacity budget beyond the
+staging bound itself; real-SDK behavior remains with the named gated tiers.
