@@ -1,0 +1,7 @@
+{
+  "distribution": "medre-adapter-meshtastic",
+  "release": "0.1.0",
+  "schema_files_sha256": {
+    "meshtastic-native-metadata.schema.json": "9e90e50ff92364cd264514221f933d179d11b6f68ddff34d0f5d0662d0576e97"
+  }
+}
