@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://medre.dev/schemas/meshtastic-native-metadata.schema.json",
+  "$id": "https://raw.githubusercontent.com/jeremiah-k/medre-adapter-meshtastic/main/docs/schemas/meshtastic-native-metadata.schema.json",
   "title": "MEDRE Meshtastic Native Metadata",
   "description": "Versioned Meshtastic-native metadata stored in CanonicalEvent.metadata.native.data.",
   "type": "object",
