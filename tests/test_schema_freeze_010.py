@@ -26,3 +26,27 @@ def test_meshtastic_schema_inventory_is_frozen() -> None:
 def test_meshtastic_schema_hash_is_frozen(name: str, digest: str) -> None:
     """Require deliberate version review before altering the baseline."""
     assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest
+
+
+def test_frozen_meshtastic_schema_is_valid_and_accepts_native_example() -> None:
+    """Freeze a valid machine-readable contract, not merely its byte hash."""
+    from jsonschema import Draft202012Validator
+
+    schema = json.loads((ROOT / "meshtastic-native-metadata.schema.json").read_text())
+    Draft202012Validator.check_schema(schema)
+    example = json.loads(
+        (ROOT / "examples" / "meshtastic-native-metadata-example.json").read_text()
+    )
+    Draft202012Validator(schema).validate(example)
+
+
+def test_meshtastic_native_schema_rejects_untracked_classification_fields() -> None:
+    """Do not silently change the 0.1.0 packet-classification vocabulary."""
+    from jsonschema import Draft202012Validator
+
+    schema = json.loads((ROOT / "meshtastic-native-metadata.schema.json").read_text())
+    example = json.loads(
+        (ROOT / "examples" / "meshtastic-native-metadata-example.json").read_text()
+    )
+    example["meshtastic"]["classification"]["unreviewed_flag"] = True
+    assert not Draft202012Validator(schema).is_valid(example)
