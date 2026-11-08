@@ -34,6 +34,10 @@ def test_frozen_meshtastic_schema_is_valid_and_accepts_native_example() -> None:
 
     schema = json.loads((ROOT / "meshtastic-native-metadata.schema.json").read_text())
     Draft202012Validator.check_schema(schema)
+    assert schema["$id"] == (
+        "https://raw.githubusercontent.com/jeremiah-k/"
+        "medre-adapter-meshtastic/main/docs/schemas/meshtastic-native-metadata.schema.json"
+    )
     example = json.loads(
         (ROOT / "examples" / "meshtastic-native-metadata-example.json").read_text()
     )
