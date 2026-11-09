@@ -54,3 +54,11 @@ def test_meshtastic_native_schema_rejects_untracked_classification_fields() -> N
     )
     example["meshtastic"]["classification"]["unreviewed_flag"] = True
     assert not Draft202012Validator(schema).is_valid(example)
+
+
+def test_frozen_schema_bytes_are_checkout_invariant() -> None:
+    """Git must not rewrite frozen schema bytes on Windows (autocrlf)."""
+    attributes = (Path(__file__).resolve().parents[1] / ".gitattributes").read_text(
+        encoding="utf-8"
+    )
+    assert "docs/schemas/** -text" in attributes.splitlines()

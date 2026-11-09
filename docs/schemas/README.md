@@ -1,5 +1,8 @@
 # Meshtastic native contract freeze
 
+Git attributes disable line-ending translation for this schema tree so frozen SHA-256
+digests and installed wheel resources remain identical on Windows and Unix.
+
 Source distributions include this directory. Wheels include the same schema
 bundle, freeze manifest, and examples under `medre/adapters/meshtastic/_schemas`.
 Installed consumers can read it with
