@@ -89,6 +89,7 @@ _NUMERIC_PORTNUM_FALLBACK: dict[int, str] = {
     67: "telemetry",
     71: "neighborinfo",
     72: "atak_plugin",
+    256: "private",
 }
 
 # Lazily-loaded SDK portnum table.  ``_SDK_PORTNUM_FETCHED`` distinguishes
@@ -175,6 +176,30 @@ def normalize_portnum(value: object) -> str | None:
             return lowered
         return lowered
     return str(value).lower()
+
+
+def public_portnum(value: object) -> int | None:
+    """Return the protocol number for public facts, separate from classifier labels."""
+    if type(value) is int:
+        return value if 0 <= value <= 511 else None
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    if stripped.isascii() and stripped.isdecimal() and len(stripped) <= 3:
+        number = int(stripped)
+        return number if number <= 511 else None
+    normalized = normalize_portnum(stripped)
+    if normalized is not None:
+        normalized = normalized.removesuffix("_app")
+    table = {**_NUMERIC_PORTNUM_FALLBACK, **(_get_sdk_portnum_table() or {})}
+    return next(
+        (
+            number
+            for number, name in table.items()
+            if 0 <= number <= 511 and name.removesuffix("_app") == normalized
+        ),
+        None,
+    )
 
 
 def _is_routing_ack(decoded: dict[str, Any]) -> bool:

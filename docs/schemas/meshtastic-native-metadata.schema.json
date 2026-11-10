@@ -8,7 +8,14 @@
   "required": ["meshtastic"],
   "properties": {
     "meshtastic": {
-      "$ref": "#/$defs/MeshtasticEvent"
+      "oneOf": [
+        {
+          "$ref": "#/$defs/MeshtasticEvent"
+        },
+        {
+          "$ref": "#/$defs/MeshtasticSourceObservation"
+        }
+      ]
     }
   },
   "$defs": {
@@ -17,11 +24,20 @@
     },
     "JsonValue": {
       "anyOf": [
-        { "type": ["string", "number", "boolean", "null"] },
-        { "type": "array", "items": { "$ref": "#/$defs/JsonValue" } },
+        {
+          "type": ["string", "number", "boolean", "null"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          }
+        },
         {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
         }
       ]
     },
@@ -46,25 +62,54 @@
         "classification"
       ],
       "properties": {
-        "schema_version": { "const": 1 },
-        "packet_id": { "$ref": "#/$defs/Scalar" },
-        "from_id": { "type": "string" },
-        "channel": { "type": ["integer", "null"], "minimum": 0 },
-        "portnum": { "type": ["string", "null"] },
-        "to_id": { "type": "string" },
-        "is_direct_message": { "type": "boolean" },
-        "longname": { "type": "string" },
-        "shortname": { "type": "string" },
-        "reply_id": { "$ref": "#/$defs/Scalar" },
-        "emoji": { "$ref": "#/$defs/Scalar" },
-        "emoji_flag": { "$ref": "#/$defs/Scalar" },
+        "schema_version": {
+          "const": 1
+        },
+        "packet_id": {
+          "$ref": "#/$defs/Scalar"
+        },
+        "from_id": {
+          "type": "string"
+        },
+        "channel": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "portnum": {
+          "type": ["string", "null"]
+        },
+        "to_id": {
+          "type": "string"
+        },
+        "is_direct_message": {
+          "type": "boolean"
+        },
+        "longname": {
+          "type": "string"
+        },
+        "shortname": {
+          "type": "string"
+        },
+        "reply_id": {
+          "$ref": "#/$defs/Scalar"
+        },
+        "emoji": {
+          "$ref": "#/$defs/Scalar"
+        },
+        "emoji_flag": {
+          "$ref": "#/$defs/Scalar"
+        },
         "packet": {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
         },
         "decoded": {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          }
         },
         "classification": {
           "type": "object",
@@ -82,16 +127,117 @@
             "routeable"
           ],
           "properties": {
-            "action": { "type": "string" },
-            "category": { "type": "string" },
-            "reason": { "type": "string" },
-            "is_reply": { "type": "boolean" },
-            "is_reaction": { "type": "boolean" },
-            "emoji_flag": { "$ref": "#/$defs/Scalar" },
-            "reaction_key": { "type": ["string", "null"] },
-            "is_encrypted": { "type": "boolean" },
-            "is_detection_sensor": { "type": "boolean" },
-            "routeable": { "type": "boolean" }
+            "action": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "is_reply": {
+              "type": "boolean"
+            },
+            "is_reaction": {
+              "type": "boolean"
+            },
+            "emoji_flag": {
+              "$ref": "#/$defs/Scalar"
+            },
+            "reaction_key": {
+              "type": ["string", "null"]
+            },
+            "is_encrypted": {
+              "type": "boolean"
+            },
+            "is_detection_sensor": {
+              "type": "boolean"
+            },
+            "routeable": {
+              "type": "boolean"
+            }
+          }
+        },
+        "public_facts": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 12,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}(?![\\s\\S])"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "MeshtasticSourceObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "observation",
+        "from_id",
+        "longname",
+        "shortname",
+        "portnum",
+        "public_facts"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "observation": {
+          "const": "source_facts"
+        },
+        "from_id": {
+          "type": "string"
+        },
+        "longname": {
+          "type": "string"
+        },
+        "shortname": {
+          "type": "string"
+        },
+        "portnum": {
+          "type": ["string", "null"]
+        },
+        "public_facts": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 12,
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}(?![\\s\\S])"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              },
+              {
+                "type": "boolean"
+              }
+            ]
           }
         }
       }
