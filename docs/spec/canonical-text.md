@@ -23,6 +23,14 @@ text supplies that key exactly; malformed or empty tapbacks MUST be dropped
 and MUST NOT decode into a fabricated symbol. Renderers MUST preserve the
 relation key and MUST NOT infer it from payload text or emoji aliases.
 
+## Explicitly promoted text portnums
+
+A non-chat portnum may decode as canonical text only when classification
+explicitly selects relay under configured promotion policy and the packet
+contains nonempty text. Detection-sensor decoding MUST retain both opt-ins:
+`detection_sensor_relay` and inclusion in `chat_portnums`. Native portnum
+metadata and public protocol-number facts MUST preserve the source portnum.
+
 Symbolic public portnums MUST resolve through the installed SDK's protocol
 enum when available, with the static fallback used when the SDK is absent.
 The public fact MUST retain the same numeric value as a numeric packet callback.
