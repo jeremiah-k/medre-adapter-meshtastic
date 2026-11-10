@@ -9,6 +9,28 @@ from setuptools import setup
 from setuptools.command.build_py import build_py
 
 
+def frozen_schema_bytes(path: Path, expected: str) -> bytes:
+    """Recover frozen LF bytes only when the manifest proves exact identity.
+
+    A Git clone of main followed by checkout of a candidate revision can retain
+    unchanged CRLF files even when that revision adds a -text attribute.
+    """
+    data = path.read_bytes()
+    if hashlib.sha256(data).hexdigest() == expected:
+        return data
+    # The setuptools PEP 517 runner rewrites escaped CRLF literals in setup.py.
+    restored = data.replace(bytes((13, 10)), bytes((10,)))
+    if hashlib.sha256(restored).hexdigest() != expected:
+        raise ValueError(
+            f"Frozen schema digest mismatch: {path.name}; "
+            f"expected={expected}; actual={hashlib.sha256(data).hexdigest()}; "
+            f"lf={hashlib.sha256(restored).hexdigest()}; "
+            f"size={len(data)}; restored_size={len(restored)}; "
+            f"crlf_count={data.count(bytes((13, 10)))}; prefix={data[:16].hex()}"
+        )
+    return restored
+
+
 class BuildPyWithSchemas(build_py):
     """Replace stale build outputs and verify the public schema freeze."""
 
@@ -32,13 +54,9 @@ class BuildPyWithSchemas(build_py):
         shutil.rmtree(target, ignore_errors=True)
         self.mkpath(str(target))
         for name, digest in sorted(frozen.items()):
-            if (
-                Path(name).name != name
-                or not isinstance(digest, str)
-                or hashlib.sha256((source / name).read_bytes()).hexdigest() != digest
-            ):
+            if Path(name).name != name or not isinstance(digest, str):
                 raise ValueError(f"Invalid or changed frozen schema: {name!r}")
-            self.copy_file(str(source / name), str(target / name))
+            (target / name).write_bytes(frozen_schema_bytes(source / name, digest))
         self.copy_file(str(freeze_file), str(target / freeze_file.name))
         # Adapter examples and README are nonnormative, but intentionally
         # distributed; keep them while omitting stale previous-build outputs.
