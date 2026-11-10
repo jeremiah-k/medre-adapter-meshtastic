@@ -62,3 +62,25 @@ def test_frozen_schema_bytes_are_checkout_invariant() -> None:
         encoding="utf-8"
     )
     assert "docs/schemas/** -text" in attributes.splitlines()
+
+
+def test_source_facts_observation_is_distinct_from_full_native_packet() -> None:
+    """An embedding consumer can claim public radio facts without faking a packet."""
+    from jsonschema import Draft202012Validator
+
+    schema = json.loads((ROOT / "meshtastic-native-metadata.schema.json").read_text())
+    validator = Draft202012Validator(schema)
+    minimal = {
+        "meshtastic": {
+            "schema_version": 1,
+            "observation": "source_facts",
+            "from_id": "!123",
+            "longname": "Alice",
+            "shortname": "AL",
+            "portnum": "1",
+            "public_facts": {"portnum": 1, "meshnet_label": "Local"},
+        }
+    }
+    validator.validate(minimal)
+    minimal["meshtastic"]["public_facts"]["private_key"] = {"secret": True}
+    assert not validator.is_valid(minimal)

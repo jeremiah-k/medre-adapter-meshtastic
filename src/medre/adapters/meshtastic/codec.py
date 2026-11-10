@@ -19,6 +19,7 @@ from medre.adapters.meshtastic.errors import MeshtasticCodecError
 from medre.adapters.meshtastic.event_shape import build_meshtastic_native_metadata
 from medre.adapters.meshtastic.packet_classifier import (
     MeshtasticPacketClassifier,
+    public_portnum,
 )
 from medre.adapters.meshtastic.packet_snapshot import snapshot_decoded, snapshot_packet
 from medre.core.contracts.adapter import AdapterCodec
@@ -221,8 +222,12 @@ class MeshtasticCodec(AdapterCodec):
         # Raw SDK objects are never stored; packet/decoded values are normalized
         # snapshots containing JSON-safe primitives only.
         portnum_value = str(portnum) if portnum else None
+        source_portnum = public_portnum(decoded.get("portnum"))
         native_meta = NativeMetadata(
             data=build_meshtastic_native_metadata(
+                public_facts=(
+                    {"portnum": source_portnum} if source_portnum is not None else None
+                ),
                 packet_id=pkt_id,
                 from_id=sender,
                 channel=pkt_channel,

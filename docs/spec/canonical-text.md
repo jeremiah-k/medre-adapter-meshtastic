@@ -15,3 +15,7 @@ Native queue draining MUST reject malformed retained payloads or text as
 permanent failures before calling the session. Such records MUST NOT consume
 transient retry attempts. Reaction keys MUST NOT bypass canonical body validation;
 native reply and tapback authority still follows the proven destination mapping.
+
+Symbolic public portnums MUST resolve through the installed SDK's protocol
+enum when available, with the static fallback used when the SDK is absent.
+The public fact MUST retain the same numeric value as a numeric packet callback.

@@ -30,9 +30,10 @@ class _MeshtasticNativeEvent:
     packet: dict[str, object]
     decoded: dict[str, object]
     classification: dict[str, object]
+    public_facts: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "schema_version": self.schema_version,
             "packet_id": self.packet_id,
             "from_id": self.from_id,
@@ -49,6 +50,9 @@ class _MeshtasticNativeEvent:
             "decoded": dict(self.decoded),
             "classification": dict(self.classification),
         }
+        if self.public_facts is not None:
+            result["public_facts"] = dict(self.public_facts)
+        return result
 
 
 def build_meshtastic_native_metadata(
@@ -67,6 +71,7 @@ def build_meshtastic_native_metadata(
     packet: dict[str, object],
     decoded: dict[str, object],
     classification: dict[str, object],
+    public_facts: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build the sole supported Meshtastic CanonicalEvent native shape."""
     event = _MeshtasticNativeEvent(
@@ -85,6 +90,7 @@ def build_meshtastic_native_metadata(
         packet=packet,
         decoded=decoded,
         classification=classification,
+        public_facts=public_facts,
     )
     return {MESHTASTIC_NATIVE_NAMESPACE: event.to_dict()}
 
