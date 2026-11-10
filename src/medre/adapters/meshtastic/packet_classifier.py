@@ -483,13 +483,8 @@ class MeshtasticPacketClassifier:
         reaction_key: str | None = None
         if emoji_flag and isinstance(decoded, dict):
             raw_text = decoded.get("text", "")
-            if isinstance(raw_text, str):
-                stripped = raw_text.strip()
-            elif raw_text is not None:
-                stripped = str(raw_text).strip()
-            else:
-                stripped = ""
-            reaction_key = stripped if stripped else "?"
+            if isinstance(raw_text, str) and raw_text.strip():
+                reaction_key = raw_text
 
         # --- Category determination ---
         is_ack = False
@@ -556,6 +551,9 @@ class MeshtasticPacketClassifier:
         elif not decoded and not is_encrypted:
             action = "drop"
             reason = REASON_MALFORMED
+        elif is_reaction and reaction_key is None:
+            action = "drop"
+            reason = "reaction requires an explicit nonempty key"
         # 2.5. Disabled portnums (blacklist — always wins over chat_portnums)
         elif (
             self._disabled_portnums

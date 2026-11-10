@@ -134,6 +134,7 @@ class MeshtasticCodec(AdapterCodec):
 
         # Determine event kind: reaction vs plain message
         is_reaction = classification.is_reaction
+        reaction_key = classification.reaction_key
         is_reply = classification.is_reply
         event_kind = EventKind.MESSAGE_CREATED
         if is_reaction:
@@ -144,7 +145,8 @@ class MeshtasticCodec(AdapterCodec):
         if portnum:
             payload["portnum"] = portnum
         if is_reaction:
-            reaction_key = classification.reaction_key or "?"
+            if reaction_key is None:
+                raise MeshtasticCodecError("Reaction requires an explicit nonempty key")
             payload["key"] = reaction_key
 
         # Source native ref from packet ID
@@ -167,7 +169,6 @@ class MeshtasticCodec(AdapterCodec):
             if emoji_flag:
                 relation_metadata["meshtastic_emoji"] = 1
             if is_reaction:
-                reaction_key = classification.reaction_key or "?"
                 relations.append(
                     EventRelation(
                         relation_type="reaction",

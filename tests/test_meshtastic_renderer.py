@@ -529,8 +529,8 @@ class TestRendererStructuredReaction:
         )
         assert result.payload["text"] == "❤️"
 
-    async def test_reaction_falls_back_to_payload_key(self) -> None:
-        """Reaction text falls back to payload key/body when relation.key is None."""
+    async def test_reaction_rejects_payload_key(self) -> None:
+        """Payload presentation cannot supply a missing structured reaction key."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reaction",
@@ -541,10 +541,11 @@ class TestRendererStructuredReaction:
             payload={"key": "🎉"},
             relations=(rel,),
         )
-        result = await renderer.render(
-            event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
-        )
-        assert result.payload["text"] == "🎉"
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(
+                event,
+                RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
+            )
 
     async def test_reaction_without_native_ref_readable_fallback(self) -> None:
         """Reaction without native ref → readable fallback, no emoji field."""
@@ -788,3 +789,27 @@ async def test_malformed_native_reaction_key_fails_before_rendering(key):
         await _make_renderer().render(
             event, RenderingContext("direct", "mesh-1", "0", "meshtastic")
         )
+
+
+@pytest.mark.parametrize("key", [None, "", " \t\n"])
+@pytest.mark.parametrize("strategy", ["direct", "fallback_text"])
+async def test_structured_reaction_requires_nonempty_explicit_key(key, strategy):
+    event = _make_event(
+        payload={"body": "🔥", "key": "🔥", "emoji": "🔥"},
+        relations=(_make_relation("reaction", key=key),),
+    )
+    with pytest.raises(ValueError, match="explicit nonempty key"):
+        await _make_renderer().render(
+            event, RenderingContext(strategy, "mesh-1", "0", "meshtastic")
+        )
+
+
+@pytest.mark.parametrize("key", ["🔥", "❤️", "👍🏽", " custom key "])
+async def test_native_tapback_preserves_exact_relation_key(key):
+    event = _make_event(
+        payload={"body": "preview"}, relations=(_make_relation("reaction", key=key),)
+    )
+    result = await _make_renderer().render(
+        event, RenderingContext("direct", "mesh-1", "0", "meshtastic")
+    )
+    assert result.payload["text"] == key

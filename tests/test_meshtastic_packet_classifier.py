@@ -390,21 +390,23 @@ class TestPacketClassifierReplyReaction:
         assert result.is_reply is False
         assert result.is_reaction is True
 
-    def test_reaction_key_empty_text_becomes_question_mark(self) -> None:
+    def test_reaction_key_empty_text_is_rejected(self) -> None:
         cls = MeshtasticPacketClassifier()
         packet = _make_text_packet(text="")
         packet["decoded"]["replyId"] = 100
         packet["decoded"]["emoji"] = 1
         result = cls.classify(packet)
-        assert result.reaction_key == "?"
+        assert result.reaction_key is None
+        assert result.action == "drop"
 
-    def test_reaction_key_whitespace_text_becomes_question_mark(self) -> None:
+    def test_reaction_key_whitespace_text_is_rejected(self) -> None:
         cls = MeshtasticPacketClassifier()
         packet = _make_text_packet(text="   ")
         packet["decoded"]["replyId"] = 100
         packet["decoded"]["emoji"] = 1
         result = cls.classify(packet)
-        assert result.reaction_key == "?"
+        assert result.reaction_key is None
+        assert result.action == "drop"
 
     def test_text_without_reply_id_no_flags(self) -> None:
         cls = MeshtasticPacketClassifier()
@@ -538,12 +540,13 @@ class TestClassifierReplyIdZero:
         assert result.reaction_key == "👍"
 
     def test_reply_id_zero_with_emoji_empty_text(self) -> None:
-        """replyId=0 + emoji=1 with empty text: reaction_key is '?'."""
+        """A zero target does not authorize an empty reaction key."""
         packet = _make_text_packet(text="")
         packet["decoded"]["replyId"] = 0
         packet["decoded"]["emoji"] = 1
         result = MeshtasticPacketClassifier().classify(packet)
-        assert result.reaction_key == "?"
+        assert result.reaction_key is None
+        assert result.action == "drop"
         assert result.is_reaction is True
 
     def test_non_string_text_does_not_throw(self) -> None:
@@ -553,8 +556,9 @@ class TestClassifierReplyIdZero:
         packet["decoded"]["replyId"] = 5
         packet["decoded"]["emoji"] = 1
         result = MeshtasticPacketClassifier().classify(packet)
-        # Should not throw. reaction_key should be str(42)
-        assert result.reaction_key == "42"
+        # Malformed payloads do not invent a string reaction key.
+        assert result.reaction_key is None
+        assert result.action == "drop"
 
 
 class TestSenderIdTypeBranches:

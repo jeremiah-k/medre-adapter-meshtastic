@@ -109,11 +109,8 @@ class TestFallbackTextReaction:
         assert result.payload["text"] == "[reacted: 👍]"
 
     @pytest.mark.asyncio
-    async def test_native_reaction_emoji_from_payload_key(self) -> None:
-        """When rel.key is None, emoji resolves from payload['key'].
-
-        Still native (same adapter) → bracket form.
-        """
+    async def test_native_reaction_rejects_emoji_from_payload_key(self) -> None:
+        """Payload presentation cannot supply a missing structured reaction key."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(key=None)
         event = _make_event(
@@ -121,21 +118,18 @@ class TestFallbackTextReaction:
             payload={"key": "❤️", "body": "some body"},
             relations=(rel,),
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="mesh-1",
-                delivery_strategy="fallback_text",
-            ),
-        )
-        assert result.payload["text"] == "[reacted: ❤️]"
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="mesh-1",
+                    delivery_strategy="fallback_text",
+                ),
+            )
 
     @pytest.mark.asyncio
-    async def test_native_reaction_emoji_from_payload_body(self) -> None:
-        """When rel.key is None and payload lacks 'key', emoji from payload['body'].
-
-        Still native → bracket form.
-        """
+    async def test_native_reaction_rejects_emoji_from_payload_body(self) -> None:
+        """Payload presentation cannot supply a missing structured reaction key."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(key=None)
         event = _make_event(
@@ -143,14 +137,14 @@ class TestFallbackTextReaction:
             payload={"body": "🎉"},
             relations=(rel,),
         )
-        result = await renderer.render(
-            event,
-            RenderingContext(
-                target_adapter="mesh-1",
-                delivery_strategy="fallback_text",
-            ),
-        )
-        assert result.payload["text"] == "[reacted: 🎉]"
+        with pytest.raises(ValueError, match="explicit nonempty key"):
+            await renderer.render(
+                event,
+                RenderingContext(
+                    target_adapter="mesh-1",
+                    delivery_strategy="fallback_text",
+                ),
+            )
 
     @pytest.mark.asyncio
     async def test_cross_platform_reaction_with_compact_prefix(self) -> None:
