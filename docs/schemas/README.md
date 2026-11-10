@@ -32,3 +32,10 @@ a full SDK packet. It is distinct from the complete native packet shape.
 The source-owned `public_facts.portnum` MUST carry the numeric Meshtastic
 protocol port number when known. Internal classifier labels MUST NOT become
 public portnum values. Unknown or malformed values MUST NOT be guessed.
+
+## Git checkout line endings
+
+A main-to-candidate Git checkout may retain unchanged CRLF files. Packaging
+MUST emit the exact frozen bytes. LF reconstruction is permitted only when
+its digest matches the freeze manifest; every other byte change MUST fail
+the build. Fresh checkouts retain the explicit `-text` attribute policy.
