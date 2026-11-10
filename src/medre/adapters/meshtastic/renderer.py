@@ -916,34 +916,14 @@ class MeshtasticRenderer:
 
     @staticmethod
     def _resolve_emoji_text(rel: EventRelation, event: CanonicalEvent) -> str | None:
-        """Resolve the reaction emoji/text using the standard priority order.
-
-        Resolution order: ``rel.key`` → ``payload["key"]`` →
-        ``payload["emoji"]`` → ``payload["body"]``.
-        Each value is stripped; only non-empty results are returned.
-        Returns ``None`` when no source yields a non-empty string.
-        """
-        # Reaction keys do not authorize malformed body/compatibility aliases.
-        # Validate the canonical text even when a native tapback key wins.
+        """Return the exact explicit reaction key after validating source text."""
         if "body" in event.payload or "text" in event.payload:
             select_message_body(event.payload)
-        if rel.key is not None:
-            if not isinstance(rel.key, str):
-                raise ValueError("Reaction key must be text")
-            stripped = rel.key.strip()
-            if stripped:
-                return stripped
-        for field in ("key", "emoji"):
-            value = event.payload.get(field)
-            if value is not None and not isinstance(value, str):
-                raise ValueError("Reaction key must be text")
-            if value and value.strip():
-                return value.strip()
-        if "body" in event.payload or "text" in event.payload:
-            body = select_message_body(event.payload).strip()
-            if body:
-                return body
-        return None
+        if rel.key is not None and not isinstance(rel.key, str):
+            raise ValueError("Reaction key must be text")
+        if not isinstance(rel.key, str) or not rel.key.strip():
+            raise ValueError("Reaction requires an explicit nonempty key")
+        return rel.key
 
     @staticmethod
     def _plain_text(event: CanonicalEvent) -> str:

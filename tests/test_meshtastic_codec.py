@@ -285,26 +285,21 @@ class TestMeshtasticCodecReactionRelation:
         assert rel.target_native_ref is not None
         assert rel.target_native_ref.native_message_id == "200"
 
-    def test_decode_reaction_empty_text_key_is_question_mark(self) -> None:
+    def test_decode_reaction_empty_text_is_rejected(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet(text="", packet_id=300)
         packet["decoded"]["replyId"] = 200
         packet["decoded"]["emoji"] = 1
-        event = codec.decode(packet)
+        with pytest.raises(MeshtasticCodecError, match="explicit nonempty key"):
+            codec.decode(packet)
 
-        rel = event.relations[0]
-        assert rel.relation_type == "reaction"
-        assert rel.key == "?"
-
-    def test_decode_reaction_whitespace_text_key_is_question_mark(self) -> None:
+    def test_decode_reaction_whitespace_text_is_rejected(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
         packet = _make_text_packet(text="   ", packet_id=300)
         packet["decoded"]["replyId"] = 200
         packet["decoded"]["emoji"] = 1
-        event = codec.decode(packet)
-
-        rel = event.relations[0]
-        assert rel.key == "?"
+        with pytest.raises(MeshtasticCodecError, match="explicit nonempty key"):
+            codec.decode(packet)
 
     def test_decode_emoji_without_reply_id_no_relation(self) -> None:
         codec = MeshtasticCodec("mesh-1", _make_config())
@@ -490,24 +485,15 @@ class TestMeshtasticCodecTapbackSnapshot:
         assert data["emoji_flag"] is True
         assert data["reply_id"] == 200
 
-    def test_tapback_empty_text_key_is_question_mark_snapshot(self) -> None:
-        """Empty text tapback: key='?', snapshot still stores raw fields."""
+    def test_tapback_empty_text_never_creates_canonical_reaction(self) -> None:
+        """An empty tapback must not create a fabricated canonical key."""
         config = MeshtasticConfig(adapter_id="mesh-1")
         codec = MeshtasticCodec("mesh-1", config)
         packet = _make_text_packet(text="", packet_id=301)
         packet["decoded"]["replyId"] = 150
         packet["decoded"]["emoji"] = 1
-        event = codec.decode(packet)
-
-        assert event.event_kind == EventKind.MESSAGE_REACTED
-        rel = event.relations[0]
-        assert rel.relation_type == "reaction"
-        assert rel.key == "?"
-
-        # Snapshot preserves raw replyId even with empty text
-        snapshot = _meshtastic_data(event)["decoded"]
-        assert snapshot.get("replyId") == 150
-        assert snapshot.get("emoji") == 1
+        with pytest.raises(MeshtasticCodecError, match="explicit nonempty key"):
+            codec.decode(packet)
 
 
 class TestMeshtasticCodecNodeInfo:
