@@ -103,14 +103,20 @@ class MeshtasticCodec(AdapterCodec):
             )
 
         classification = self._classifier.classify(packet)
+        decoded = packet.get("decoded", {})
         if classification.is_ack:
             raise MeshtasticCodecError("ACK packets are not decodable as text events")
-        if classification.category != "text":
+        promoted_text = (
+            classification.action == "relay"
+            and isinstance(decoded, dict)
+            and isinstance(decoded.get("text"), str)
+            and bool(decoded["text"].strip())
+        )
+        if classification.category != "text" and not promoted_text:
             raise MeshtasticCodecError(
                 f"unsupported Meshtastic packet category for decode: {classification.category!r}"
             )
 
-        decoded = packet.get("decoded", {})
         if isinstance(decoded, dict):
             text = decoded.get("text", "")
         else:

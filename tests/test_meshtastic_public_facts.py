@@ -59,6 +59,38 @@ def test_real_codec_exports_protocol_portnum_in_generic_context(wire_value, expe
 def test_public_portnum_does_not_guess_unknown_protocol_values(wire_value, expected):
     assert public_portnum(wire_value) == expected
 
+
+@pytest.mark.parametrize("wire_value", [10, "DETECTION_SENSOR_APP", "detection_sensor"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_detection_sensor_source_facts_require_explicit_text_promotion(
+    wire_value, enabled
+):
+    from medre.adapters.meshtastic.errors import MeshtasticCodecError
+
+    config = MeshtasticConfig(
+        adapter_id="radio",
+        detection_sensor_relay=enabled,
+        chat_portnums=frozenset({"detection_sensor"}),
+    )
+    codec = MeshtasticCodec("radio", config)
+    packet = {
+        "id": 0,
+        "fromId": "!12345678",
+        "to": 4294967295,
+        "channel": 0,
+        "decoded": {"portnum": wire_value, "text": "Door opened"},
+    }
+    if not enabled:
+        with pytest.raises(MeshtasticCodecError, match="category"):
+            codec.decode(packet)
+        return
+    event = codec.decode(packet)
+    assert event.payload["body"] == "Door opened"
+    assert (
+        build_bridge_context(event)["source"]["native_facts"]["fields"]["portnum"] == 10
+    )
+
+
 @pytest.mark.parametrize(
     "wire_value", [37, "MESH_BEACON_APP", "mesh_beacon", "mesh_beacon_app"]
 )
@@ -71,6 +103,26 @@ def test_sdk_declared_portnum_names_keep_the_protocol_number(monkeypatch, wire_v
     monkeypatch.setattr(packet_classifier, "_SDK_PORTNUM_CACHE", None)
     monkeypatch.setattr(compat, "get_portnum_table", lambda: {37: "mesh_beacon_app"})
     assert public_portnum(wire_value) == 37
+
+    codec = MeshtasticCodec(
+        "radio",
+        MeshtasticConfig(
+            adapter_id="radio",
+            chat_portnums=frozenset({"mesh_beacon", "mesh_beacon_app"}),
+        ),
+    )
+    event = codec.decode(
+        {
+            "id": 0,
+            "fromId": "!12345678",
+            "to": 4294967295,
+            "channel": 0,
+            "decoded": {"portnum": wire_value, "text": "Public text"},
+        }
+    )
+    assert (
+        build_bridge_context(event)["source"]["native_facts"]["fields"]["portnum"] == 37
+    )
 
 
 @pytest.mark.meshtastic_sdk
