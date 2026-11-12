@@ -2,7 +2,7 @@
 
 An omitted or null `radio_relay_prefix` selects automatic attribution. Matrix
 sources use the first five Unicode code points of the full display name followed
-by `"[M]: "`, matching MMRelay's `display5` default. Missing display names fall back
+by `"[M]: "`. Missing display names fall back
 to the source sender identity. Other platforms use the generic short sender
 followed by `": "` and MUST NOT receive a Matrix marker.
 
@@ -29,7 +29,7 @@ native target mapping. A source codec's meshtastic_reply_id hint MUST NOT be
 reused as an unmapped destination packet ID. Missing destination mappings MUST
 fall back to readable text without native relation fields. Explicit fallback
 strategies MUST NOT emit native tapback fields. Reactions from other transports
-retain MMRelay-compatible descriptive rendering.
+retain descriptive rendering.
 
 The mapping is sampled when the reaction is rendered. A reaction queued before
 native handoff establishes the original's destination mapping MUST retain its
