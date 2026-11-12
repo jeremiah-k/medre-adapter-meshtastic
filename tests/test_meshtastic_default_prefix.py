@@ -37,7 +37,7 @@ def renderer(monkeypatch):
             "source_platform": "matrix",
         },
     )
-    return MeshtasticRenderer(configs={"target": MeshtasticConfig("target")})
+    return MeshtasticRenderer(configs={"target": MeshtasticConfig(adapter_id="target")})
 
 
 async def render(renderer, body="Testing from Matrix"):
