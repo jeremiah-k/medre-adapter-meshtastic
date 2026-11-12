@@ -7,5 +7,15 @@
       "matchPackageNames": ["medre"],
       "enabled": false
     }
+  ],
+  "regexManagers": [
+    {
+      "description": "Keep the license disclosure pinned requirement current with pyproject",
+      "fileMatch": ["^DEPENDENCY_LICENSES\\.md$"],
+      "matchStrings": [
+        "`(?<depName>[A-Za-z0-9_.-]+)(?:\\[[a-z,]+\\])?==(?<currentValue>[^`\\s]+)`"
+      ],
+      "datasourceTemplate": "pypi"
+    }
   ]
 }
