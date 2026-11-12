@@ -41,7 +41,9 @@ async def test_initial_radio_constructor_does_not_block_the_runtime_loop(monkeyp
     monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
     session = MeshtasticSession(
         MeshtasticConfig(
-            "offline", connection_type="ble", ble_address="AA:BB:CC:DD:EE:FF"
+            adapter_id="offline",
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
         ),
         adapter_id="offline",
         platform="meshtastic",
@@ -79,7 +81,7 @@ def offline_session(monkeypatch, connect):
     monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
     return MeshtasticSession(
         MeshtasticConfig(
-            "offline",
+            adapter_id="offline",
             connection_type="ble",
             ble_address="AA:BB:CC:DD:EE:FF",
             sync_timeout_ms=50,
@@ -206,7 +208,7 @@ def test_startup_budget_requires_a_positive_integer(value):
     from medre.config.adapters.meshtastic import MeshtasticConfigError
 
     with pytest.raises(MeshtasticConfigError, match="sync_timeout_ms"):
-        MeshtasticConfig("offline", sync_timeout_ms=value).validate()
+        MeshtasticConfig(adapter_id="offline", sync_timeout_ms=value).validate()
 
 
 async def test_offline_second_radio_does_not_block_other_runtime_adapters(
@@ -390,7 +392,9 @@ async def test_missing_transport_dependency_remains_a_startup_failure(monkeypatc
     monkeypatch.setitem(sys.modules, "meshtastic.ble_interface", None)
     session = MeshtasticSession(
         MeshtasticConfig(
-            "offline", connection_type="ble", ble_address="AA:BB:CC:DD:EE:FF"
+            adapter_id="offline",
+            connection_type="ble",
+            ble_address="AA:BB:CC:DD:EE:FF",
         ),
         adapter_id="offline",
         platform="meshtastic",

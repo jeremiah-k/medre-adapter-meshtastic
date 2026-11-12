@@ -39,7 +39,7 @@ async def test_cancellation_reaches_the_sdk_constructor(monkeypatch, mode):
     monkeypatch.setitem(sys.modules, module.__name__, module)
     session = MeshtasticSession(
         MeshtasticConfig(
-            "radio",
+            adapter_id="radio",
             connection_type=mode,
             host="localhost",
             serial_port="/dev/test",
@@ -76,7 +76,7 @@ def test_legacy_sdk_receives_no_new_keyword(monkeypatch):
     module.TCPInterface = factory
     monkeypatch.setitem(sys.modules, module.__name__, module)
     session = MeshtasticSession(
-        MeshtasticConfig("radio", connection_type="tcp", host="localhost"),
+        MeshtasticConfig(adapter_id="radio", connection_type="tcp", host="localhost"),
         adapter_id="radio",
         platform="meshtastic",
     )
@@ -87,7 +87,7 @@ async def test_legacy_session_override_retains_native_result_ownership(monkeypat
     """A private override without the new keyword remains usable by startup."""
     expected = SimpleNamespace(close=lambda: None)
     session = MeshtasticSession(
-        MeshtasticConfig("radio", connection_type="tcp", host="localhost"),
+        MeshtasticConfig(adapter_id="radio", connection_type="tcp", host="localhost"),
         adapter_id="radio",
         platform="meshtastic",
     )
@@ -108,7 +108,7 @@ def test_positional_only_sdk_signal_uses_legacy_constructor_contract(monkeypatch
     module.TCPInterface = factory
     monkeypatch.setitem(sys.modules, module.__name__, module)
     session = MeshtasticSession(
-        MeshtasticConfig("radio", connection_type="tcp", host="localhost"),
+        MeshtasticConfig(adapter_id="radio", connection_type="tcp", host="localhost"),
         adapter_id="radio",
         platform="meshtastic",
     )
