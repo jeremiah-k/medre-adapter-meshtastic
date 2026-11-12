@@ -68,12 +68,6 @@ class MeshtasticConfig:
         sources use ``{sender_short}: ``. An explicit empty string disables it.
 
         Example: ``"{sender_short}: "``
-    mmrelay_compatibility:
-        When ``True``, the Matrix renderer embeds mmrelay-compatible
-        Meshtastic metadata into the Matrix event content payload.  This
-        allows downstream consumers expecting mmrelay's ``meshtastic_*``
-        fields to interoperate with medre-relayed messages.  Default:
-        ``False``.
     max_text_parts:
         Explicit long-message opt-in from 2 through 128; 1 keeps single-packet
         clipping. Guarded packet waiters retain core ownership through the
@@ -81,8 +75,7 @@ class MeshtasticConfig:
     max_text_bytes:
         Maximum UTF-8 byte budget for the final radio text after
         rendering.  Applied after all prefix, reply, and reaction
-        formatting is complete.  Default: ``227``, informed by the
-        MMRelay ``DEFAULT_MESSAGE_TRUNCATE_BYTES`` constant.
+        formatting is complete.  Default: ``227``.
 
         **Relation overhead tradeoff.** The Meshtastic-Android
         ``DATA_PAYLOAD_LEN = 233`` applies to the *entire encoded*
@@ -173,7 +166,6 @@ class MeshtasticConfig:
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
     radio_relay_prefix: str | None = None
-    mmrelay_compatibility: bool = False
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3
     queue_max_size: int = 1024
