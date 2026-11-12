@@ -362,7 +362,7 @@ class TestNativeReplyIdFromRelation:
             MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
         )
 
-    def test_foreign_adapter_ignored_but_mmrelay_fallback(self) -> None:
+    def test_foreign_adapter_ignored_but_metadata_fallback(self) -> None:
         """Native ref from foreign adapter returns None (no fallback metadata)."""
         foreign_ref = NativeRef(
             adapter="matrix-1", native_channel_id="!r", native_message_id="123"
@@ -378,8 +378,8 @@ class TestNativeReplyIdFromRelation:
             MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
         )
 
-    def test_mmrelay_metadata_fallback_works(self) -> None:
-        """MMRelay meshtastic_reply_id in metadata provides fallback reply ID."""
+    def test_metadata_reply_id_fallback_works(self) -> None:
+        """Relation metadata meshtastic_reply_id provides a fallback reply ID."""
         foreign_ref = NativeRef(
             adapter="matrix-1", native_channel_id="!r", native_message_id="abc"
         )
@@ -632,7 +632,7 @@ class TestMeshtasticRendererForeignRefs:
         assert "emoji" not in result.payload
         assert "[reacted: 👍]" in result.payload["text"]
 
-    async def test_mmrelay_metadata_fallback_for_reply(self) -> None:
+    async def test_metadata_fallback_for_reply(self) -> None:
         """Relation with metadata meshtastic_reply_id renders reply_id=id even without native ref."""
         renderer = _make_renderer("mesh-1")
         rel = EventRelation(
@@ -649,7 +649,7 @@ class TestMeshtasticRendererForeignRefs:
         )
         assert result.payload["reply_id"] == 42
 
-    async def test_mmrelay_metadata_fallback_for_reaction(self) -> None:
+    async def test_metadata_fallback_for_reaction(self) -> None:
         """Relation with metadata meshtastic_reply_id renders reply_id + emoji=1."""
         renderer = _make_renderer("mesh-1")
         rel = EventRelation(
@@ -667,7 +667,7 @@ class TestMeshtasticRendererForeignRefs:
         assert result.payload["reply_id"] == 77
         assert result.payload["emoji"] == 1
 
-    async def test_non_numeric_mmrelay_id_falls_back(self) -> None:
+    async def test_non_numeric_metadata_reply_id_falls_back(self) -> None:
         """Non-numeric meshtastic_reply_id in metadata falls back to readable text."""
         renderer = _make_renderer("mesh-1")
         rel = EventRelation(

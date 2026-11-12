@@ -10,7 +10,7 @@ Locks the current target-selection contracts:
   to ``relation.metadata["meshtastic_reply_id"]``.
 * Reaction: native Meshtastic tapback (``emoji=1`` + ``reply_id``) when
   ``event.source_adapter == target_adapter`` and a numeric ref exists.
-  Cross-platform reactions use MMRelay-style descriptive text.
+  Cross-platform reactions use descriptive text.
 * Missing target (empty relations): renders plain text.
 * Stale native target: no pre-validation — renderer trusts the ref blindly.
 """
@@ -215,7 +215,7 @@ async def test_native_reaction_sets_emoji_and_reply_id() -> None:
 
 
 async def test_cross_platform_reaction_uses_descriptive_text() -> None:
-    """Cross-platform reaction uses MMRelay descriptive text, not emoji=1."""
+    """Cross-platform reaction uses descriptive text, not emoji=1."""
     renderer = _renderer()
     # source_adapter != target_adapter → cross-platform
     event = _event(
