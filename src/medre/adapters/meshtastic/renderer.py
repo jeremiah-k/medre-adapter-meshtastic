@@ -37,7 +37,7 @@ shared exact radio planner. Native tapbacks and descriptive reactions remain
 single packets. Prefix, numbering and UTF-8 budgets apply independently to
 every planned packet; exceeding the part cap rejects the complete plan.
 
-**Cross-platform reaction rendering (MMRelay-compatible).**
+**Cross-platform reaction rendering.**
 When a reaction originates outside the configured Meshtastic instances
 (e.g. Matrix → Meshtastic), the renderer emits descriptive text
 rather than a native Meshtastic emoji tapback:
@@ -284,7 +284,7 @@ class MeshtasticRenderer:
                     or event.source_adapter
                 )
             if attr.source_platform == "matrix":
-                # MMRelay's default display5 is five Unicode code points;
+                # The default Matrix attribution is five Unicode code points;
                 # the final UTF-8 wire budget is enforced after composition.
                 attr = replace(attr, source_sender_label=sender[:5])
                 radio_relay_prefix = "{sender}[M]: "
@@ -343,7 +343,7 @@ class MeshtasticRenderer:
         * *native reaction* without numeric native ref — emits readable
           fallback text ``"[reacted: {emoji}]"`` with no ``emoji`` field.
         * *cross-platform reaction* (non-Meshtastic source, e.g.
-          Matrix → Meshtastic) — emits MMRelay-compatible descriptive
+          Matrix → Meshtastic) — emits descriptive
           text: ``{compact_prefix} reacted {emoji} to "{abbreviated}"``.
           Sets ``reply_id`` if a Meshtastic packet ID is available.
           Does **not** set ``emoji=1``.
@@ -483,7 +483,7 @@ class MeshtasticRenderer:
                         else:
                             content["text"] = f"[reacted: {emoji_text}]"
                     else:
-                        # Cross-platform MMRelay-style descriptive reaction
+                        # Cross-platform descriptive reaction
                         orig_preview = self._abbreviated_original_text(event, rel)
                         compact_prefix_result = self._format_prefix_for(
                             event,
@@ -671,7 +671,7 @@ class MeshtasticRenderer:
             if self._is_meshtastic_source(event):
                 # Native reaction degraded to readable text (no tapback).
                 return (f"[reacted: {emoji_text}]", None)
-            # Cross-platform reaction: MMRelay-style descriptive text,
+            # Cross-platform reaction: descriptive text,
             # but without native reply_id.
             orig_preview = self._abbreviated_original_text(event, rel)
             cp_result = self._format_prefix_for(
@@ -744,11 +744,9 @@ class MeshtasticRenderer:
     def _truncate_utf8_bytes(text: str, max_bytes: int) -> tuple[str, bool, int, int]:
         """Truncate *text* to at most *max_bytes* UTF-8 bytes.
 
-        Follows the MMRelay conceptual pattern: encode the full text to
-        UTF-8 bytes, slice the byte buffer to the configured budget, then
-        decode back with ``errors="ignore"`` to avoid splitting multi-byte
-        codepoints.  This is the same approach used by mmrelay's
-        ``truncate_message_bytes`` utility.
+        Encodes the full text to UTF-8 bytes, slices the byte buffer to
+        the configured budget, then decodes back with
+        ``errors="ignore"`` to avoid splitting multi-byte codepoints.
 
         Parameters
         ----------
@@ -787,7 +785,7 @@ class MeshtasticRenderer:
 
         Runtime assembly supplies every enabled Meshtastic instance, so an LF
         radio and an LT radio share native reaction semantics despite distinct
-        IDs. External sources retain descriptive MMRelay reaction rendering.
+        IDs. External sources retain descriptive reaction rendering.
         Wire metadata and adapter-name spelling do not establish transport type.
         """
         return event.source_adapter in self._configs
@@ -878,8 +876,8 @@ class MeshtasticRenderer:
 
         1. ``target_native_ref`` owned by *target_adapter* with a
            numeric ``native_message_id``.
-        2. Relation ``metadata["meshtastic_reply_id"]`` (set by
-           MatrixCodec for MMRelay-style emote reactions).
+        2. Relation ``metadata["meshtastic_reply_id"]`` (recorded by the
+           Meshtastic codec when decoding reply/reaction packets).
         3. ``None`` — no usable Meshtastic reply ID.
 
         Never uses a native ref from a different adapter. Native cross-radio
@@ -903,12 +901,12 @@ class MeshtasticRenderer:
         if not allow_metadata_fallback:
             return None
 
-        # Fallback: MMRelay meshtastic_reply_id from relation metadata
+        # Fallback: meshtastic_reply_id from relation metadata
         metadata = getattr(relation, "metadata", None) or {}
-        mmrelay_id = metadata.get("meshtastic_reply_id")
-        if mmrelay_id is not None:
+        metadata_id = metadata.get("meshtastic_reply_id")
+        if metadata_id is not None:
             try:
-                return int(str(mmrelay_id))
+                return int(str(metadata_id))
             except (ValueError, TypeError):
                 pass
 
