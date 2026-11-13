@@ -248,3 +248,28 @@ class TestEnvCreatedMeshtasticDefaults:
         # MeshtasticConfig.connection_type defaults to "fake"
         assert adapter.config is not None
         assert adapter.config.connection_type == "fake"
+
+
+@pytest.mark.parametrize("prefix", ["", "{sender3}[M]: "])
+def test_file_config_preserves_unified_relay_prefix(
+    tmp_path: Path, prefix: str
+) -> None:
+    """The core YAML loader passes the declared field, including disabled prefix."""
+    yaml_content = (
+        "runtime:\n  name: prefix-loader-test\nadapters:\n  meshtastic:\n    radio-a:\n"
+        + f"      connection_type: fake\n      relay_prefix: {prefix!r}\n"
+    )
+    config_path = _write_config(tmp_path, yaml_content)
+    config, _source, _paths = load_config(str(config_path))
+    assert config.adapters.meshtastic["radio-a"].config.relay_prefix == prefix
+
+
+@pytest.mark.parametrize("prefix", ["", "{sender3}[M]: "])
+def test_env_config_preserves_unified_relay_prefix(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, prefix: str
+) -> None:
+    """Env-created radios distinguish explicit disablement from automatic None."""
+    _set_radio_a_env_only(monkeypatch)
+    monkeypatch.setenv("MEDRE_ADAPTER__RADIO_A__RELAY_PREFIX", prefix)
+    config, _source, _paths = _load_with_env(tmp_path)
+    assert config.adapters.meshtastic["radio-a"].config.relay_prefix == prefix
