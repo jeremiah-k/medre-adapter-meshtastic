@@ -543,3 +543,61 @@ class TestMeshtasticConfigInvalid:
             MeshtasticConfigError, match="origin_label must be a str, got NoneType"
         ):
             config.validate()
+
+    # -- relay_prefix validation --
+
+    def test_relay_prefix_default_is_none(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.relay_prefix is None
+        assert config.validate() is config
+
+    def test_relay_prefix_none_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", relay_prefix=None)
+        assert config.validate() is config
+        assert config.relay_prefix is None
+
+    def test_relay_prefix_empty_string_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")
+        assert config.validate() is config
+        assert config.relay_prefix == ""
+
+    def test_relay_prefix_custom_template_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", relay_prefix="{sender5}[M]: ")
+        assert config.validate() is config
+        assert config.relay_prefix == "{sender5}[M]: "
+
+    def test_relay_prefix_bool_true_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", relay_prefix=True  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="relay_prefix must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_relay_prefix_bool_false_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", relay_prefix=False  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="relay_prefix must be a str, got bool"
+        ):
+            config.validate()
+
+    def test_relay_prefix_int_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", relay_prefix=5  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="relay_prefix must be a str, got int"
+        ):
+            config.validate()
+
+    def test_relay_prefix_float_rejected(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", relay_prefix=1.5  # type: ignore[arg-type]
+        )
+        with pytest.raises(
+            MeshtasticConfigError, match="relay_prefix must be a str, got float"
+        ):
+            config.validate()
