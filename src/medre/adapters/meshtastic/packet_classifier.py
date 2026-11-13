@@ -28,7 +28,6 @@ from datetime import datetime
 from typing import Any, Literal
 
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
-from medre.interop.mmrelay import EMOJI_FLAG_VALUE
 
 # --- Reason constants ---
 REASON_TEXT: str = "text message"
@@ -51,6 +50,11 @@ REASON_DETECTION_SENSOR_PROMOTED: str = "detection sensor promoted by chat_portn
 # from the numeric `from` field using canonical "!" + 8-char hex format
 # to match own_node_id's format.
 _MESHTASTIC_NODE_ID_HEX_WIDTH: int = 8
+
+# The native decoded.emoji flag marks a replyId-bearing radio packet as a
+# reaction; the explicit reaction key remains in decoded.text. This is a
+# Meshtastic packet property, not an MMRelay interoperability contract.
+_MESHTASTIC_REACTION_FLAG_VALUE: int = 1
 
 # --- Literal type aliases ---
 ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
@@ -325,9 +329,9 @@ class MeshtasticPacketClassifier:
     ----------
     config:
         Optional :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
-        accepted for forward-compatibility.  The classifier does not read
-        ``config.channel_mapping`` — it is retained so future policy
-        extensions can access it without an API break.
+        supplying the chat ``portnums`` sets.  The classifier does not read
+        ``config.channel_mapping`` — that mapping is a channel-index →
+        display-name label map for downstream components.
     """
 
     def __init__(self, config: Any = None) -> None:
@@ -478,7 +482,7 @@ class MeshtasticPacketClassifier:
             if reply_id is None:
                 reply_id = decoded.get("reply_id")
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
-        emoji_flag = emoji_raw == EMOJI_FLAG_VALUE
+        emoji_flag = emoji_raw == _MESHTASTIC_REACTION_FLAG_VALUE
 
         reaction_key: str | None = None
         if emoji_flag and isinstance(decoded, dict):

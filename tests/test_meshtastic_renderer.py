@@ -689,11 +689,11 @@ class TestMeshtasticRendererForeignRefs:
 @pytest.mark.parametrize(
     "payload,expected",
     [
-        ({"body": "current", "text": "legacy"}, "legacy"),
+        ({"body": "current", "text": "unstyled"}, "unstyled"),
         (
             {
                 "body": "current",
-                "text": "legacy",
+                "text": "unstyled",
                 "formatting": {"version": 1, "spans": []},
             },
             "current",
@@ -720,8 +720,8 @@ async def test_meshtastic_text_authority_matches_core(payload, expected):
     "payload",
     [
         {"body": "valid body", "text": 42},
-        {"body": 42, "text": "legacy"},
-        {"body": None, "text": "legacy", "formatting": {"version": 1, "spans": []}},
+        {"body": 42, "text": "unstyled"},
+        {"body": None, "text": "unstyled", "formatting": {"version": 1, "spans": []}},
     ],
 )
 async def test_malformed_canonical_text_never_becomes_radio_content(payload):
@@ -739,7 +739,7 @@ async def test_reply_text_selection_preserves_native_relation_authority(
     strategy, styled
 ):
     """Select the same source body for native replies and readable degradation."""
-    payload = {"body": "current", "text": "legacy"}
+    payload = {"body": "current", "text": "unstyled"}
     if styled:
         payload["formatting"] = {"version": 1, "spans": []}
     relation = _make_relation(fallback_text="earlier")
@@ -747,7 +747,7 @@ async def test_reply_text_selection_preserves_native_relation_authority(
         _make_event(payload=payload, relations=(relation,)),
         RenderingContext(strategy, "mesh-1", "0", "meshtastic"),
     )
-    selected = "current" if styled else "legacy"
+    selected = "current" if styled else "unstyled"
     expected = (
         selected if strategy == "direct" else f"[replying to: earlier] {selected}"
     )
@@ -760,7 +760,7 @@ async def test_reply_text_selection_preserves_native_relation_authority(
     "payload",
     [
         {"body": 17},
-        {"body": 17, "text": "legacy"},
+        {"body": 17, "text": "unstyled"},
         {"body": "valid", "text": 17},
         {"body": False, "formatting": {"version": 1, "spans": []}},
     ],
