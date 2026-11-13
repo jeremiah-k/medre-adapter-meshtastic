@@ -328,7 +328,7 @@ class TestMeshtasticPairEgress:
             )
             template = MeshtasticConfig(
                 adapter_id="mt_radio", connection_type="serial"
-            ).radio_relay_prefix
+            ).relay_prefix
             relay_prefix = format_relay_prefix(
                 template,
                 RelayAttribution(

@@ -26,7 +26,7 @@ from medre.core.rendering.renderer import RenderingContext
 def _config(**overrides: Any) -> MeshtasticConfig:
     values: dict[str, Any] = {
         "adapter_id": "mesh-reference",
-        "radio_relay_prefix": "",
+        "relay_prefix": "",
     }
     values.update(overrides)
     return MeshtasticConfig(**values)

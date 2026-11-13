@@ -36,7 +36,7 @@ def _make_renderer_multi(
         adapter_id="radio-b",
         default_channel=radio_b_channel,
         max_text_bytes=radio_b_max_bytes,
-        radio_relay_prefix=radio_b_prefix,
+        relay_prefix=radio_b_prefix,
         origin_label=radio_b_origin_label,
     )
     return MeshtasticRenderer(configs={"radio-a": cfg_a, "radio-b": cfg_b})
@@ -213,7 +213,7 @@ class TestMultiAdapterDefaultChannel:
         assert result.truncated is True
 
     async def test_radio_b_prefix_applied(self) -> None:
-        """radio-b config radio_relay_prefix is applied with source-origin label."""
+        """radio-b config relay_prefix is applied with source-origin label."""
         renderer = _make_renderer_multi(
             radio_b_prefix="[{origin_label}] ",
         )

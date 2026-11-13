@@ -222,17 +222,13 @@ class TestMeshtasticRendererIsolation:
 
     def test_renderer_has_no_deliver_method(self) -> None:
         renderer = MeshtasticRenderer(
-            configs={
-                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", radio_relay_prefix="")
-            }
+            configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")}
         )
         assert not hasattr(renderer, "deliver")
 
     def test_renderer_has_no_send_method(self) -> None:
         renderer = MeshtasticRenderer(
-            configs={
-                "mesh-1": MeshtasticConfig(adapter_id="mesh-1", radio_relay_prefix="")
-            }
+            configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")}
         )
         assert not hasattr(renderer, "send")
         assert not hasattr(renderer, "sendText")
@@ -255,7 +251,7 @@ class TestMeshtasticRendererIsolation:
         renderer = MeshtasticRenderer(
             configs={
                 "meshtastic_node": MeshtasticConfig(
-                    adapter_id="meshtastic_node", radio_relay_prefix=""
+                    adapter_id="meshtastic_node", relay_prefix=""
                 )
             }
         )

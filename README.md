@@ -180,7 +180,7 @@ The firmware rule is implemented in
 Matrix messages sent to Meshtastic default to `Alice[M]: message`, using the
 first five display-name characters. The prefix shares the 227-byte UTF-8 budget
 with the body. Other source platforms retain generic short-name attribution.
-Set `radio_relay_prefix: ""` to disable it or supply a custom generic template;
+Set `relay_prefix: ""` to disable it or supply a custom generic template;
 omitted/null selects the source-aware default.
 
 ## Offline startup and recovery

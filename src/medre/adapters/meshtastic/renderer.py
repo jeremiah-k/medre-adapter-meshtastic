@@ -11,7 +11,7 @@ mapping — there is no fallback or default.  An empty mapping raises
 :class:`ValueError` at construction; an unknown *target_adapter* raises
 :class:`KeyError` at render time.
 
-When the resolved config contains a non-empty ``radio_relay_prefix``,
+When the resolved config contains a non-empty ``relay_prefix``,
 the renderer prepends a formatted prefix to the message text.  The prefix
 template uses Python ``str.format()`` syntax with generic variables:
 
@@ -93,7 +93,7 @@ class MeshtasticRenderer:
     mapping of adapter IDs to :class:`~medre.config.adapters.meshtastic.MeshtasticConfig`
     instances.  At render time the config for *target_adapter* is resolved
     from this mapping.  This allows multi-radio setups where each adapter
-    has different ``max_text_bytes`` and ``radio_relay_prefix`` values.
+    has different ``max_text_bytes`` and ``relay_prefix`` values.
 
     An empty *configs* mapping raises :class:`ValueError`.  An unknown
     *target_adapter* at render time raises :class:`KeyError`.
@@ -173,7 +173,7 @@ class MeshtasticRenderer:
     def _format_prefix_for(
         self,
         event: CanonicalEvent,
-        radio_relay_prefix: str | None,
+        relay_prefix: str | None,
         *,
         compact: bool = False,
         source_origin_label: str | None = None,
@@ -209,7 +209,7 @@ class MeshtasticRenderer:
         ----------
         event:
             The canonical event whose source metadata is used for formatting.
-        radio_relay_prefix:
+        relay_prefix:
             The prefix template string.
         compact:
             When ``True``, strip spaces from display-name tokens.
@@ -225,10 +225,10 @@ class MeshtasticRenderer:
             Frozen result with rendered prefix string and diagnostic
             metadata.
         """
-        if radio_relay_prefix == "":
+        if relay_prefix == "":
             return PrefixFormatterResult(
                 rendered_prefix="",
-                template_used=radio_relay_prefix,
+                template_used=relay_prefix,
                 variables_used=(),
                 missing_variables=(),
                 unknown_variables=(),
@@ -273,7 +273,7 @@ class MeshtasticRenderer:
             projected_fields=projected,
         )
 
-        if radio_relay_prefix is None:
+        if relay_prefix is None:
             sender = (
                 attr.source_sender_label
                 or attr.source_sender_short_label
@@ -291,14 +291,14 @@ class MeshtasticRenderer:
                 # The default Matrix attribution is five Unicode code points;
                 # the final UTF-8 wire budget is enforced after composition.
                 attr = replace(attr, source_sender_label=sender[:5])
-                radio_relay_prefix = "{sender}[M]: "
+                relay_prefix = "{sender}[M]: "
             else:
                 attr = replace(
                     attr,
                     source_sender_short_label=attr.source_sender_short_label or sender,
                 )
-                radio_relay_prefix = "{sender_short}: "
-        return format_relay_prefix(radio_relay_prefix, attr)
+                relay_prefix = "{sender_short}: "
+        return format_relay_prefix(relay_prefix, attr)
 
     # ------------------------------------------------------------------
     # Rendering
@@ -314,7 +314,7 @@ class MeshtasticRenderer:
         The rendered payload includes:
 
         * ``text``: extracted text from the event payload, with the
-          configured ``radio_relay_prefix`` prepended if set.
+          configured ``relay_prefix`` prepended if set.
         * ``channel_index``: the adapter's ``default_channel``, overridden
           only when *ctx.target_channel* is a valid numeric value.
 
@@ -394,7 +394,7 @@ class MeshtasticRenderer:
                 f"{sorted(self._configs.keys())}"
             ) from None
 
-        prefix = adapter_config.radio_relay_prefix
+        prefix = adapter_config.relay_prefix
         max_text_bytes = (
             ctx.max_text_bytes
             if ctx.max_text_bytes is not None
@@ -954,7 +954,7 @@ def build_meshtastic_renderer(
         adapter_id = rtc.adapter_id
         config = rtc.config
         if config is None:
-            config = MeshtasticConfig(adapter_id=adapter_id, radio_relay_prefix="")
+            config = MeshtasticConfig(adapter_id=adapter_id, relay_prefix="")
         configs[adapter_id] = config
     if not configs:
         return None

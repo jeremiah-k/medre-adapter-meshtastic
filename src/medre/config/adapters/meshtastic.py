@@ -57,7 +57,7 @@ class MeshtasticConfig:
         same value bounds SDK connection/configuration phases. Expiry leaves
         the started adapter degraded while its owned attempt and lifetime
         recovery continue in the background.
-    radio_relay_prefix:
+    relay_prefix:
         Template string prepended to messages relayed **from** Matrix
         **to** Meshtastic radio.  Uses Python ``str.format()`` syntax
         with generic variables: ``{sender}``, ``{sender_short}``,
@@ -165,7 +165,7 @@ class MeshtasticConfig:
     message_delay_seconds: float = 2.2
     startup_backlog_suppress_seconds: float = 5.0
     sync_timeout_ms: int = 30000
-    radio_relay_prefix: str | None = None
+    relay_prefix: str | None = None
     max_text_bytes: int = 227
     queue_send_max_attempts: int = 3
     queue_max_size: int = 1024
@@ -368,14 +368,12 @@ class MeshtasticConfig:
             )
         if type(self.sync_timeout_ms) is not int or self.sync_timeout_ms <= 0:
             raise MeshtasticConfigError("sync_timeout_ms must be a positive integer")
-        # --- radio_relay_prefix ---
-        if isinstance(self.radio_relay_prefix, bool):
-            raise MeshtasticConfigError("radio_relay_prefix must be a str, got bool")
-        if self.radio_relay_prefix is not None and not isinstance(
-            self.radio_relay_prefix, str
-        ):
+        # --- relay_prefix ---
+        if isinstance(self.relay_prefix, bool):
+            raise MeshtasticConfigError("relay_prefix must be a str, got bool")
+        if self.relay_prefix is not None and not isinstance(self.relay_prefix, str):
             raise MeshtasticConfigError(
-                f"radio_relay_prefix must be a str, "
-                f"got {type(self.radio_relay_prefix).__name__}"
+                f"relay_prefix must be a str, "
+                f"got {type(self.relay_prefix).__name__}"
             )
         return self

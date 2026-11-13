@@ -29,12 +29,12 @@ from medre.core.rendering.renderer import RenderingContext
 def _make_renderer(
     target_adapter: str = "mesh-1",
     *,
-    radio_relay_prefix: str = "",
+    relay_prefix: str = "",
     max_text_bytes: int = 227,
 ) -> MeshtasticRenderer:
     config = MeshtasticConfig(
         adapter_id=target_adapter,
-        radio_relay_prefix=radio_relay_prefix,
+        relay_prefix=relay_prefix,
         max_text_bytes=max_text_bytes,
     )
     return MeshtasticRenderer(configs={target_adapter: config})
@@ -154,7 +154,7 @@ class TestFallbackTextReaction:
         """
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="[{sender_short}]",
+            relay_prefix="[{sender_short}]",
         )
         rel = _make_relation(
             key="🔥",
@@ -214,7 +214,7 @@ class TestFallbackTextReaction:
         """
         renderer = _make_renderer(
             "mesh-1",
-            radio_relay_prefix="{sender_short} ",
+            relay_prefix="{sender_short} ",
         )
         rel = _make_relation(
             key="😂",

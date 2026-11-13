@@ -36,7 +36,7 @@ def config(**changes):
         adapter_id="mt",
         max_text_bytes=40,
         max_text_parts=16,
-        radio_relay_prefix="[North] ",
+        relay_prefix="[North] ",
         message_delay_seconds=0,
         **changes,
     )
@@ -48,7 +48,7 @@ async def rendered(*, body="café α " * 12, parts=16, budget=40):
         adapter_id="mt",
         max_text_bytes=budget,
         max_text_parts=parts,
-        radio_relay_prefix="[North] ",
+        relay_prefix="[North] ",
     )
     event = CanonicalEvent(
         event_id="guarded-event",
