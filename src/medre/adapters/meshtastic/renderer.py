@@ -518,8 +518,7 @@ class MeshtasticRenderer:
                         if compact_prefix and not compact_prefix[-1:].isspace():
                             sep = " "
                         content["text"] = (
-                            f"{compact_prefix}{sep}reacted {emoji_text} "
-                            f"to {quoted}"
+                            f"{compact_prefix}{sep}reacted {emoji_text} " f"to {quoted}"
                         )
                         if reply_id is not None:
                             content["reply_id"] = reply_id
