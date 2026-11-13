@@ -47,6 +47,10 @@ rather than a native Meshtastic emoji tapback:
   conserve meshnet bandwidth; casing is preserved.  A separator
   space is inserted between the prefix and ``reacted`` only when the
   prefix is non-empty.
+* When the reacted-to text is genuinely unresolvable (no enriched
+  ``original_text``/``fallback_text`` and no usable event body), the
+  quoted preview degrades to the honest wording ``an earlier message``
+  instead of quoting an empty string.
 * ``reply_id`` is set when the original message has a known Meshtastic
   packet ID (via ``target_native_ref`` or ``meshtastic_reply_id`` metadata),
   allowing the descriptive text to be sent as a structured reply.
@@ -346,7 +350,9 @@ class MeshtasticRenderer:
           Matrix → Meshtastic) — emits descriptive
           text: ``{compact_prefix} reacted {emoji} to "{abbreviated}"``.
           Sets ``reply_id`` if a Meshtastic packet ID is available.
-          Does **not** set ``emoji=1``.
+          Does **not** set ``emoji=1``.  When the target text is
+          unresolvable the quoted preview degrades to
+          ``an earlier message`` — the wire never carries ``to ""``.
 
         Cross-platform reaction previews are abbreviated to 40 characters.
 
@@ -485,6 +491,11 @@ class MeshtasticRenderer:
                     else:
                         # Cross-platform descriptive reaction
                         orig_preview = self._abbreviated_original_text(event, rel)
+                        quoted = (
+                            f'"{orig_preview}"'
+                            if orig_preview
+                            else "an earlier message"
+                        )
                         compact_prefix_result = self._format_prefix_for(
                             event,
                             prefix,
@@ -508,7 +519,7 @@ class MeshtasticRenderer:
                             sep = " "
                         content["text"] = (
                             f"{compact_prefix}{sep}reacted {emoji_text} "
-                            f'to "{orig_preview}"'
+                            f"to {quoted}"
                         )
                         if reply_id is not None:
                             content["reply_id"] = reply_id
@@ -674,6 +685,7 @@ class MeshtasticRenderer:
             # Cross-platform reaction: descriptive text,
             # but without native reply_id.
             orig_preview = self._abbreviated_original_text(event, rel)
+            quoted = f'"{orig_preview}"' if orig_preview else "an earlier message"
             cp_result = self._format_prefix_for(
                 event,
                 prefix,
@@ -692,7 +704,7 @@ class MeshtasticRenderer:
             if compact_prefix and not compact_prefix[-1:].isspace():
                 sep = " "
             return (
-                f"{compact_prefix}{sep}reacted {emoji_text} " f'to "{orig_preview}"',
+                f"{compact_prefix}{sep}reacted {emoji_text} " f"to {quoted}",
                 cp_result,
             )
 
@@ -807,6 +819,10 @@ class MeshtasticRenderer:
 
         Newlines are normalised to spaces.  The result is truncated to
         40 characters with an ellipsis (``"..."``) when longer.
+
+        An empty return means the reacted-to text is genuinely
+        unresolvable; composition sites degrade to the honest wording
+        ``an earlier message`` instead of quoting an empty string.
 
         Parameters
         ----------
