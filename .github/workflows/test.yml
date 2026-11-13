@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: jeremiah-k/medre
-          ref: ${{ inputs.core_ref || vars.MEDRE_CORE_REF || 'e19e380a4436988189f5514da890bde848cbacef' }}
+          ref: ${{ inputs.core_ref || vars.MEDRE_CORE_REF || '6590957fac79e897a5f71f931663117bff7f7e31' }}
           path: .core
           persist-credentials: false
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
