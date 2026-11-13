@@ -490,7 +490,7 @@ class MeshtasticRenderer:
                             content["text"] = f"[reacted: {emoji_text}]"
                     else:
                         # Cross-platform descriptive reaction
-                        orig_preview = self._abbreviated_original_text(event, rel)
+                        orig_preview = self._abbreviated_original_text(rel)
                         quoted = (
                             f'"{orig_preview}"'
                             if orig_preview
@@ -683,7 +683,7 @@ class MeshtasticRenderer:
                 return (f"[reacted: {emoji_text}]", None)
             # Cross-platform reaction: descriptive text,
             # but without native reply_id.
-            orig_preview = self._abbreviated_original_text(event, rel)
+            orig_preview = self._abbreviated_original_text(rel)
             quoted = f'"{orig_preview}"' if orig_preview else "an earlier message"
             cp_result = self._format_prefix_for(
                 event,
@@ -802,19 +802,18 @@ class MeshtasticRenderer:
         return event.source_adapter in self._configs
 
     @staticmethod
-    def _abbreviated_original_text(
-        event: CanonicalEvent, relation: EventRelation
-    ) -> str:
+    def _abbreviated_original_text(relation: EventRelation) -> str:
         """Return an abbreviated preview of the original message being
         reacted to.
 
         Source preference order:
 
         1. ``relation.metadata["original_text"]`` — mapped original
-           message text from the source codec.
-        2. ``relation.fallback_text`` — human-readable fallback.
-        3. ``event.payload`` ``body`` / ``text`` — event body as last
-           resort.
+           message text from relation enrichment.
+        2. ``relation.fallback_text`` — human-readable target fallback.
+
+        The reaction's own payload is never a target preview: its body may
+        contain the reaction key or unrelated authored text.
 
         Newlines are normalised to spaces.  The result is truncated to
         40 characters with an ellipsis (``"..."``) when longer.
@@ -825,8 +824,6 @@ class MeshtasticRenderer:
 
         Parameters
         ----------
-        event:
-            The canonical event (used for payload fallback).
         relation:
             The reaction relation whose target text is previewed.
 
@@ -842,10 +839,6 @@ class MeshtasticRenderer:
         # 2. Fallback text from relation
         if not source_text:
             source_text = relation.fallback_text
-
-        # 3. Event payload body/text
-        if not source_text:
-            source_text = select_message_body(event.payload)
 
         # Normalise: treat str and non-str uniformly
         text = str(source_text) if source_text else ""

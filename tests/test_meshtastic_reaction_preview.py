@@ -260,6 +260,22 @@ class TestUnresolvableTargetDegradation:
         assert text.endswith("to an earlier message")
         assert EMPTY_QUOTE_SHAPE not in text
 
+    @pytest.mark.parametrize("strategy", ["direct", "fallback_text"])
+    @pytest.mark.parametrize("body", ["👍️", "not the target text"])
+    async def test_reaction_body_does_not_forge_a_target_preview(
+        self, strategy: str, body: str
+    ) -> None:
+        """The reaction's own body never becomes the reacted-to quote."""
+        from msgspec.structs import replace
+
+        storage = _QuoteStorage(observed=False, quote_denied=False)
+        event = await _resolve_and_enrich(_matrix_reaction_event(), storage)
+        event = replace(event, payload={**event.payload, "body": body})
+        result = await _render(event, strategy=strategy)
+        text = str(result.payload["text"])
+        assert text.endswith("to an earlier message")
+        assert f'to "{body}"' not in text
+
     async def test_degradation_holds_with_compact_prefix(self) -> None:
         storage = _QuoteStorage(observed=False, quote_denied=False)
         event = await _resolve_and_enrich(_matrix_reaction_event(), storage)
