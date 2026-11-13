@@ -24,6 +24,14 @@ template uses Python ``str.format()`` syntax with generic variables:
 * ``{channel}`` — source channel/room.
 * ``{route_id}`` — route identifier.
 
+Radio displays are constrained, so the label variables ``sender``,
+``sender_short``, and ``origin_label`` additionally accept the shared
+``{nameN}`` truncation suffix — ``{sender3}`` renders the first three
+Unicode code points of the sender label (N >= 1).  A numeric-suffixed
+undeclared name passes through unchanged, per the shared relay-prefix
+formatter contract.  The automatic Matrix default is the
+``{sender5}[M]: `` template.
+
 This renderer is owned by the Meshtastic adapter package and is registered
 with the rendering pipeline.
 
@@ -82,6 +90,18 @@ from medre.core.rendering.renderer import (
 
 if TYPE_CHECKING:
     from medre.config.adapters.meshtastic import MeshtasticConfig
+
+
+# Label variables that accept the ``{nameN}`` first-N-code-points
+# truncation suffix in relay-prefix templates.  Radio displays are the
+# constrained-display affordance that motivates truncation on this
+# transport; identifier-like variables (``sender_id``, ``platform``,
+# ``channel``, ``route_id``) are deliberately excluded.
+_TRUNCATABLE_VARIABLES: tuple[str, ...] = ("sender", "sender_short", "origin_label")
+
+# Automatic Matrix attribution expressed as a template: the first five
+# Unicode code points of the display name followed by the Matrix marker.
+_AUTOMATIC_MATRIX_TEMPLATE = "{sender5}[M]: "
 
 
 class MeshtasticRenderer:
@@ -196,6 +216,12 @@ class MeshtasticRenderer:
         * ``{channel}`` — source channel/room.
         * ``{route_id}`` — route identifier.
 
+        The label variables ``sender``, ``sender_short``, and
+        ``origin_label`` accept the shared ``{nameN}`` truncation suffix:
+        ``{sender3}`` renders the first three Unicode code points of the
+        sender label (N >= 1).  A numeric suffix on an undeclared name is
+        treated as unknown and passes through unchanged.
+
         ``{meshnet_name}`` is not a known variable — it passes through
         unchanged in templates (recorded as an unknown field).
 
@@ -210,7 +236,8 @@ class MeshtasticRenderer:
         event:
             The canonical event whose source metadata is used for formatting.
         relay_prefix:
-            The prefix template string.
+            The prefix template string.  ``None`` selects the automatic
+            attribution template; an empty string disables the prefix.
         compact:
             When ``True``, strip spaces from display-name tokens.
         source_origin_label:
@@ -288,17 +315,20 @@ class MeshtasticRenderer:
                     or event.source_adapter
                 )
             if attr.source_platform == "matrix":
-                # The default Matrix attribution is five Unicode code points;
-                # the final UTF-8 wire budget is enforced after composition.
-                attr = replace(attr, source_sender_label=sender[:5])
-                relay_prefix = "{sender}[M]: "
+                # The automatic default is the shared truncation template:
+                # five Unicode code points of the display name; the final
+                # UTF-8 wire budget is enforced after composition.
+                attr = replace(attr, source_sender_label=sender)
+                relay_prefix = _AUTOMATIC_MATRIX_TEMPLATE
             else:
                 attr = replace(
                     attr,
                     source_sender_short_label=attr.source_sender_short_label or sender,
                 )
                 relay_prefix = "{sender_short}: "
-        return format_relay_prefix(relay_prefix, attr)
+        return format_relay_prefix(
+            relay_prefix, attr, truncatable=_TRUNCATABLE_VARIABLES
+        )
 
     # ------------------------------------------------------------------
     # Rendering

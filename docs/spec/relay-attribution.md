@@ -1,14 +1,25 @@
 # Meshtastic relay attribution
 
 An omitted or null `relay_prefix` selects automatic attribution. Matrix
-sources use the first five Unicode code points of the full display name followed
-by `"[M]: "`. Missing display names fall back
-to the source sender identity. Other platforms use the generic short sender
-followed by `": "` and MUST NOT receive a Matrix marker.
+sources use the automatic template `{sender5}[M]: ` — the first five
+Unicode code points of the full display name followed by `"[M]: "`.
+Missing display names fall back to the source sender identity. Other
+platforms use the generic short sender followed by `": "` and MUST NOT
+receive a Matrix marker.
 
 A configured string MUST take precedence; `relay_prefix: ""` MUST disable
 the prefix. Custom `{sender_short}` templates retain their existing account-name
 semantics. Prefix presentation MUST NOT rewrite the canonical sender metadata.
+
+Radio displays are the constrained-display affordance of this transport:
+the label variables `sender`, `sender_short`, and `origin_label` accept
+the shared `{nameN}` truncation suffix, rendering the first N Unicode
+code points of the variable's value. The suffix counts code points,
+never bytes, and N MUST be at least 1 (`{sender0}` is not a truncation
+variable). A numeric-suffixed name whose stem is not declared
+truncatable for this transport passes through unchanged — roomy
+transports declare no truncatable names. The shared relay-prefix
+formatter specification defines the full contract.
 
 The entire composed prefix, reply/reaction text and message MUST fit the target's
 `max_text_bytes` budget (227 by default). Truncation MUST preserve valid UTF-8;
