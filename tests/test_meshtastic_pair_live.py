@@ -268,6 +268,7 @@ class TestMeshtasticPairEgress:
             cases = [unicode_msg, newline_msg, long_msg, normal_msg]
             assert len(cases) <= _TX_BUDGET
             events: dict[str, str] = {}
+            long_source_event = None
             pid = 900_000
             window = len(cases) * (_TX_PACING_SECONDS + 0.6) + _BOUNDARY_RECEIPT_TIMEOUT
             with _PeerListener(window) as peer:
@@ -279,6 +280,8 @@ class TestMeshtasticPairEgress:
                     await fake.simulate_inbound(packet)
                     event = fake.inbound_events[-1]
                     events[text] = event.event_id
+                    if text == long_msg:
+                        long_source_event = event
                     # Pace ingress so outbound queue + airtime stay stable.
                     await asyncio.sleep(_TX_PACING_SECONDS + 0.6)
                 expected_keys = ("N4-uni", "N4-nl", "N4-long", "N4-ok")
@@ -307,33 +310,16 @@ class TestMeshtasticPairEgress:
             # boundaries. Derive the expected prefix through the same
             # production path (config template + attribution projection of
             # the fake packet's native sender) instead of hardcoding it.
-            from medre.adapters.meshtastic.attribution import (
-                project_meshtastic_attribution,
-            )
+            from medre.adapters.meshtastic.renderer import MeshtasticRenderer
             from medre.config.adapters.meshtastic import MeshtasticConfig
-            from medre.core.rendering.attribution import (
-                RelayAttribution,
-                format_relay_prefix,
-            )
 
-            # The codec persists native identity under the versioned
-            # Meshtastic namespace; mirror that persisted shape here.
-            attribution = project_meshtastic_attribution(
-                {
-                    "meshtastic": {
-                        "schema_version": 1,
-                        "from_id": "!peer0001",
-                    }
-                }
-            )
-            template = MeshtasticConfig(
+            assert long_source_event is not None
+            radio_config = MeshtasticConfig(
                 adapter_id="mt_radio", connection_type="serial"
-            ).relay_prefix
-            relay_prefix = format_relay_prefix(
-                template,
-                RelayAttribution(
-                    source_sender_short_label=attribution["source_sender_short_label"]
-                ),
+            )
+            renderer = MeshtasticRenderer(configs={"mt_radio": radio_config})
+            relay_prefix = renderer._format_prefix_for(
+                long_source_event, radio_config.relay_prefix
             ).rendered_prefix
             expected_long = (
                 (relay_prefix + long_msg)
