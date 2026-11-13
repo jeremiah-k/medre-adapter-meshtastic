@@ -183,6 +183,13 @@ with the body. Other source platforms retain generic short-name attribution.
 Set `relay_prefix: ""` to disable it or supply a custom generic template;
 omitted/null selects the source-aware default.
 
+Templates use generic variables such as `{sender}` and `{sender_short}`.
+Because radio displays are constrained, the label variables `sender`,
+`sender_short`, and `origin_label` also accept truncation suffixes:
+`{sender3}` renders the first three Unicode code points of the sender
+label (N must be at least 1). A numeric suffix on any other variable
+passes through unchanged.
+
 ## Offline startup and recovery
 
 An offline radio no longer holds up the runtime for the SDK's multi-minute

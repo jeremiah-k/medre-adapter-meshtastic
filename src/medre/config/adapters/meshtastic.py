@@ -63,11 +63,22 @@ class MeshtasticConfig:
         with generic variables: ``{sender}``, ``{sender_short}``,
         ``{sender_id}``, ``{origin_label}``, ``{platform}``,
         ``{channel}``, ``{route_id}``.
-        Default: ``None`` selects automatic attribution. Matrix sources use the
-        first five display-name characters followed by ``[M]: ``; other
-        sources use ``{sender_short}: ``. An explicit empty string disables it.
 
-        Example: ``"{sender_short}: "``
+        Radio displays are constrained: the label variables ``sender``,
+        ``sender_short``, and ``origin_label`` additionally accept a
+        numeric-suffix truncation form ``{nameN}`` that renders the
+        first N Unicode code points (N >= 1).  ``{sender5}`` yields the
+        first five code points of the sender label.  An undeclared
+        variable with a numeric suffix passes through unchanged; see
+        the shared relay-prefix formatter specification for the full
+        contract.
+
+        Default: ``None`` selects automatic attribution. Matrix sources
+        use the ``{sender5}[M]: `` template (the first five display-name
+        code points followed by ``[M]: ``); other sources use
+        ``{sender_short}: ``. An explicit empty string disables it.
+
+        Example: ``"{sender3}[M]: "``
     max_text_parts:
         Explicit long-message opt-in from 2 through 128; 1 keeps single-packet
         clipping. Guarded packet waiters retain core ownership through the
