@@ -31,6 +31,15 @@ fall back to readable text without native relation fields. Explicit fallback
 strategies MUST NOT emit native tapback fields. Reactions from other transports
 retain descriptive rendering.
 
+A descriptive cross-transport reaction body MUST quote a bounded, single-line
+preview of the reacted-to text: whitespace-flattened, at most 40 characters
+with a trailing ellipsis when longer, sourced from canonical relation
+enrichment (`original_text`, then `fallback_text`). When the reacted-to text
+is genuinely unresolvable, the body MUST say `an earlier message` instead of
+quoting an empty string; the literal shape `to ""` MUST NOT reach the wire.
+The complete described body, including the compact attribution prefix and the
+exact reaction key, remains subject to the target's `max_text_bytes` budget.
+
 The mapping is sampled when the reaction is rendered. A reaction queued before
 native handoff establishes the original's destination mapping MUST retain its
 readable fallback even if that mapping appears before the queued send executes.
