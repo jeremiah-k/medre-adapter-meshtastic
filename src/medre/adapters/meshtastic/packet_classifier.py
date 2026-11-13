@@ -51,10 +51,10 @@ REASON_DETECTION_SENSOR_PROMOTED: str = "detection sensor promoted by chat_portn
 # to match own_node_id's format.
 _MESHTASTIC_NODE_ID_HEX_WIDTH: int = 8
 
-#: Wire sentinel MMRelay sets in ``meshtastic_emoji`` for a reaction packet:
-#: the emoji field carries ``1`` while the reaction symbol rides ``text``.
-#: This is the peer relay's wire contract, not MEDRE-owned state.
-MMRELAY_EMOJI_FLAG_VALUE: int = 1
+# The native decoded.emoji flag marks a replyId-bearing radio packet as a
+# reaction; the explicit reaction key remains in decoded.text. This is a
+# Meshtastic packet property, not an MMRelay interoperability contract.
+_MESHTASTIC_REACTION_FLAG_VALUE: int = 1
 
 # --- Literal type aliases ---
 ClassificationAction = Literal["relay", "ignore", "drop", "deferred"]
@@ -482,7 +482,7 @@ class MeshtasticPacketClassifier:
             if reply_id is None:
                 reply_id = decoded.get("reply_id")
         emoji_raw = decoded.get("emoji") if isinstance(decoded, dict) else None
-        emoji_flag = emoji_raw == MMRELAY_EMOJI_FLAG_VALUE
+        emoji_flag = emoji_raw == _MESHTASTIC_REACTION_FLAG_VALUE
 
         reaction_key: str | None = None
         if emoji_flag and isinstance(decoded, dict):
