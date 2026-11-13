@@ -72,7 +72,7 @@ class TestMeshtasticSessionCallbackBridge:
             MeshtasticRenderer(
                 configs={
                     "cb-fake-out": MeshtasticConfig(
-                        adapter_id="cb-fake-out", radio_relay_prefix=""
+                        adapter_id="cb-fake-out", relay_prefix=""
                     )
                 }
             ),

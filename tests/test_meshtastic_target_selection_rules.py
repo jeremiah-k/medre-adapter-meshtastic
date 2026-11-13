@@ -43,7 +43,7 @@ def _config(
 ) -> MeshtasticConfig:
     return MeshtasticConfig(
         adapter_id=adapter_id,
-        radio_relay_prefix="",
+        relay_prefix="",
         max_text_bytes=max_text_bytes,
     )
 

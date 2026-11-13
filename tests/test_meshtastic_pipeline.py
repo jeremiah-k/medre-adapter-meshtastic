@@ -115,7 +115,7 @@ class TestMeshtasticPipelineIntegration:
             MeshtasticRenderer(
                 configs={
                     "meshtastic_node": MeshtasticConfig(
-                        adapter_id="meshtastic_node", radio_relay_prefix=""
+                        adapter_id="meshtastic_node", relay_prefix=""
                     )
                 }
             ),

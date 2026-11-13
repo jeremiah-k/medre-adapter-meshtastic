@@ -80,7 +80,7 @@ async def test_explicit_prefix_and_disable_override_automatic(
     renderer, template, expected
 ):
     renderer._configs["target"] = replace(
-        renderer._configs["target"], radio_relay_prefix=template
+        renderer._configs["target"], relay_prefix=template
     )
     assert (await render(renderer)).payload["text"] == expected
 

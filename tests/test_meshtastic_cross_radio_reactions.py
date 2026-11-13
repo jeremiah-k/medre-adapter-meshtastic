@@ -52,7 +52,7 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
         name: MeshtasticConfig(
             adapter_id=name,
             connection_type="fake",
-            radio_relay_prefix="",
+            relay_prefix="",
             message_delay_seconds=0,
         )
         for name in (source, target)
@@ -190,9 +190,7 @@ async def test_unresolved_source_packet_id_is_not_reused_on_another_radio(
 ):
     """A source-radio packet ID cannot bind a reaction/reply on another mesh."""
     configs = {
-        name: MeshtasticConfig(
-            adapter_id=name, connection_type="fake", radio_relay_prefix=""
-        )
+        name: MeshtasticConfig(adapter_id=name, connection_type="fake", relay_prefix="")
         for name in ("FXLF", "FXLT")
     }
     packet = make_text_packet(
@@ -228,9 +226,7 @@ async def test_cross_radio_tapback_encodes_real_sdk_protobuf():
     from medre.core.events import NativeRef
 
     configs = {
-        name: MeshtasticConfig(
-            adapter_id=name, connection_type="fake", radio_relay_prefix=""
-        )
+        name: MeshtasticConfig(adapter_id=name, connection_type="fake", relay_prefix="")
         for name in ("FXLF", "FXLT")
     }
     packet = make_text_packet(text="👍", packet_id=102, channel=4)

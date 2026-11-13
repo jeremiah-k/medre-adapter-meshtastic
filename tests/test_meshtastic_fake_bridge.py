@@ -94,9 +94,7 @@ class TestMeshtasticInboundToFakeOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "fake-out": MeshtasticConfig(
-                        adapter_id="fake-out", radio_relay_prefix=""
-                    )
+                    "fake-out": MeshtasticConfig(adapter_id="fake-out", relay_prefix="")
                 }
             ),
             priority=50,
