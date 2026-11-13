@@ -106,14 +106,14 @@ def _matrix_reaction_event(
 
 
 def _make_renderer(
-    *, radio_relay_prefix: str | None = None, max_text_bytes: int = 227
+    *, relay_prefix: str | None = None, max_text_bytes: int = 227
 ) -> MeshtasticRenderer:
     kwargs: dict[str, Any] = {
         "adapter_id": MESH_ADAPTER,
         "max_text_bytes": max_text_bytes,
     }
-    if radio_relay_prefix is not None:
-        kwargs["radio_relay_prefix"] = radio_relay_prefix
+    if relay_prefix is not None:
+        kwargs["relay_prefix"] = relay_prefix
     config = MeshtasticConfig(**kwargs)
     return MeshtasticRenderer(configs={MESH_ADAPTER: config})
 
@@ -279,7 +279,7 @@ class TestUnresolvableTargetDegradation:
     async def test_degradation_holds_with_compact_prefix(self) -> None:
         storage = _QuoteStorage(observed=False, quote_denied=False)
         event = await _resolve_and_enrich(_matrix_reaction_event(), storage)
-        renderer = _make_renderer(radio_relay_prefix="{sender_short}: ")
+        renderer = _make_renderer(relay_prefix="{sender_short}: ")
         result = await _render(event, renderer)
         text = str(result.payload["text"])
         assert "reacted 👍️ to an earlier message" in text
