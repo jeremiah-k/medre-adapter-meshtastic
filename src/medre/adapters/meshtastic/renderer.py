@@ -88,7 +88,7 @@ from medre.core.rendering.relations import (
     reaction_key,
     destination_native_message_id,
 )
-from medre.core.rendering.text_helpers import extract_relation_text, truncate_text_bytes
+from medre.core.rendering.text_helpers import extract_event_text, truncate_text_bytes
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
@@ -464,7 +464,7 @@ class MeshtasticRenderer:
         elif rel is not None and rel.relation_type == "reply" and reply_id is not None:
             content.update(text=body, reply_id=reply_id)
         else:
-            content["text"] = extract_relation_text(event)
+            content["text"] = extract_event_text(event)
 
         prefix_result = self._format_prefix_for(
             event,
