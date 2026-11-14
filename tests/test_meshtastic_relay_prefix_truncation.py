@@ -37,9 +37,9 @@ def renderer(monkeypatch):
     monkeypatch.setattr(
         "medre.adapters.meshtastic.renderer.project_source_fields",
         lambda *a, **kw: {
-            "source_sender_label": "Tad Chilly",
-            "source_sender_short_label": "tadchilly",
-            "source_sender_id": "@tadchilly:example.org",
+            "source_sender_label": "Bob Smith",
+            "source_sender_short_label": "bobsmith",
+            "source_sender_id": "@bobsmith:example.org",
             "source_platform": "matrix",
         },
     )
@@ -51,7 +51,7 @@ async def render(renderer, relay_prefix=None, body="Testing from Matrix"):
         adapter_id="target", relay_prefix=relay_prefix
     )
     return await renderer.render(
-        message(sender="@tadchilly:example.org", text=body),
+        message(sender="@bobsmith:example.org", text=body),
         RenderingContext(
             target_adapter="target",
             target_platform="meshtastic",
@@ -68,8 +68,8 @@ async def render(renderer, relay_prefix=None, body="Testing from Matrix"):
 
 async def test_automatic_matrix_default_is_the_truncation_template(renderer):
     result = await render(renderer)
-    assert result.payload["text"] == "Tad C[M]: Testing from Matrix"
-    assert result.metadata["relay_prefix_rendered"] == "Tad C[M]: "
+    assert result.payload["text"] == "Bob S[M]: Testing from Matrix"
+    assert result.metadata["relay_prefix_rendered"] == "Bob S[M]: "
     assert result.metadata["relay_prefix_template"] == "{sender5}[M]: "
 
 
@@ -101,7 +101,7 @@ async def test_automatic_non_matrix_default_keeps_short_sender(renderer, monkeyp
 
 async def test_none_selects_automatic_and_empty_string_disables(renderer):
     automatic = await render(renderer, relay_prefix=None)
-    assert automatic.payload["text"] == "Tad C[M]: Testing from Matrix"
+    assert automatic.payload["text"] == "Bob S[M]: Testing from Matrix"
     disabled = await render(renderer, relay_prefix="")
     assert disabled.payload["text"] == "Testing from Matrix"
     assert "relay_prefix_rendered" not in disabled.metadata
@@ -114,7 +114,7 @@ async def test_none_selects_automatic_and_empty_string_disables(renderer):
 
 async def test_custom_template_truncates_sender_by_code_points(renderer):
     result = await render(renderer, relay_prefix="{sender3}[M]: ")
-    assert result.payload["text"] == "Tad[M]: Testing from Matrix"
+    assert result.payload["text"] == "Bob[M]: Testing from Matrix"
 
 
 async def test_truncation_counts_code_points_not_bytes(renderer, monkeypatch):
@@ -165,7 +165,7 @@ async def test_origin_label_truncation_suffix(renderer):
 
 async def test_sender_short_truncation_suffix(renderer):
     result = await render(renderer, relay_prefix="{sender_short4}: ")
-    assert result.payload["text"] == "tadc: Testing from Matrix"
+    assert result.payload["text"] == "bobs: Testing from Matrix"
 
 
 # ---------------------------------------------------------------------------
@@ -187,4 +187,4 @@ async def test_undeclared_stem_with_suffix_stays_literal(renderer):
 
 async def test_plain_variables_are_unaffected_by_declaration(renderer):
     result = await render(renderer, relay_prefix="{sender}: ")
-    assert result.payload["text"] == "Tad Chilly: Testing from Matrix"
+    assert result.payload["text"] == "Bob Smith: Testing from Matrix"

@@ -31,9 +31,9 @@ def renderer(monkeypatch):
     monkeypatch.setattr(
         "medre.adapters.meshtastic.renderer.project_source_fields",
         lambda *a, **kw: {
-            "source_sender_label": "Tad Chilly",
-            "source_sender_short_label": "tadchilly",
-            "source_sender_id": "@tadchilly:example.org",
+            "source_sender_label": "Bob Smith",
+            "source_sender_short_label": "bobsmith",
+            "source_sender_id": "@bobsmith:example.org",
             "source_platform": "matrix",
         },
     )
@@ -42,7 +42,7 @@ def renderer(monkeypatch):
 
 async def render(renderer, body="Testing from Matrix"):
     return await renderer.render(
-        message({}, sender="@tadchilly:example.org", text=body),
+        message({}, sender="@bobsmith:example.org", text=body),
         RenderingContext(
             target_adapter="target",
             target_platform="meshtastic",
@@ -54,8 +54,8 @@ async def render(renderer, body="Testing from Matrix"):
 
 async def test_default_uses_five_display_characters_and_matrix_marker(renderer):
     result = await render(renderer)
-    assert result.payload["text"] == "Tad C[M]: Testing from Matrix"
-    assert result.metadata["relay_prefix_rendered"] == "Tad C[M]: "
+    assert result.payload["text"] == "Bob S[M]: Testing from Matrix"
+    assert result.metadata["relay_prefix_rendered"] == "Bob S[M]: "
     assert result.payload["channel_index"] == 3
 
 
@@ -64,7 +64,7 @@ async def test_default_prefix_counts_against_unicode_wire_budget(renderer):
         renderer._configs["target"], max_text_bytes=30
     )
     result = await render(renderer, "🌍" * 30)
-    assert result.payload["text"] == "Tad C[M]: " + "🌍" * 5
+    assert result.payload["text"] == "Bob S[M]: " + "🌍" * 5
     assert len(result.payload["text"].encode("utf-8")) <= 30
     assert result.truncated
 
@@ -73,7 +73,7 @@ async def test_default_prefix_counts_against_unicode_wire_budget(renderer):
     "template,expected",
     [
         ("", "Testing from Matrix"),
-        ("{sender_short}: ", "tadchilly: Testing from Matrix"),
+        ("{sender_short}: ", "bobsmith: Testing from Matrix"),
     ],
 )
 async def test_explicit_prefix_and_disable_override_automatic(
