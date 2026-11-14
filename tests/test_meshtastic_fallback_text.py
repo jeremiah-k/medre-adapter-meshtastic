@@ -310,33 +310,13 @@ class TestResolveReplyTargetMarker:
         result = relation_target_display(rel)
         assert result == "unknown message"
 
-    def test_native_ref_without_message_id_falls_through_to_event_id(self) -> None:
-        """target_native_ref exists but native_message_id is None → falls to target_event_id.
-
-        Exercises lines 537-541 (ref is not None, mid is None) then 542-543.
-        """
-        # NativeRef requires native_message_id as positional arg; use a mock-like object
-        # We need an object with native_message_id=None but that passes the ref is not None check.
-        # NativeRef is a struct, so create one then check if native_message_id can be None.
-        # Looking at the code: getattr(ref, "native_message_id", None) - if it returns None, falls through.
-        # NativeRef has native_message_id as a required field, so it can't be None normally.
-        # We can test the fallthrough by creating a NativeRef and checking target_event_id path.
-        # Actually, let's test with a real NativeRef (native_message_id is always set).
-        # The real uncovered case is when ref has no native_message_id attribute at all.
-        # We can use a simple object for this.
-
-        class FakeRef:
-            """An object that has no native_message_id attribute."""
-
-            pass
-
+    def test_canonical_target_marker_precedes_native_id(self) -> None:
+        """A valid native reference cannot replace known canonical correlation."""
         rel = EventRelation(
             relation_type="reply",
             target_event_id="evt-fallback",
-            target_native_ref=FakeRef(),  # type: ignore[arg-type]
+            target_native_ref=NativeRef("source", "0", "123"),
             key=None,
             fallback_text=None,
         )
-        result = relation_target_display(rel)
-        # getattr(FakeRef(), "native_message_id", None) → None → falls to target_event_id
-        assert result == "evt-fall…"
+        assert relation_target_display(rel) == "evt-fall…"
