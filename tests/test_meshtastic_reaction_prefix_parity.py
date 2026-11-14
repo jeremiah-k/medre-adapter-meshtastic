@@ -44,6 +44,42 @@ REACTION_KEY = "👍"
 EXPECTED_PREFIX = "Tad C[M]: "
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_matrix_projection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Project sender labels from the matrix namespace without the matrix
+    adapter distribution.
+
+    The parity under test is the meshtastic renderer's composition, not
+    cross-adapter dispatch: fake-mode CI runs without the matrix adapter
+    projector installed, so the suite-standard monkeypatch (see
+    test_meshtastic_default_prefix.py) supplies the display name the real
+    matrix projector would.
+    """
+
+    def _project(
+        native_data: dict[str, Any],
+        *,
+        source_adapter: str = "",
+        source_transport_id: str | None = None,
+        platform_hint: str | None = None,
+    ) -> dict[str, str | None]:
+        matrix = native_data.get("matrix") or {}
+        sender = matrix.get("sender") or source_transport_id
+        short = None
+        if sender:
+            short = sender[1:].split(":", 1)[0] or None
+        return {
+            "source_sender_label": matrix.get("sender_display_name"),
+            "source_sender_short_label": short,
+            "source_sender_id": sender,
+            "source_platform": "matrix",
+        }
+
+    monkeypatch.setattr(
+        "medre.adapters.meshtastic.renderer.project_source_fields", _project
+    )
+
+
 def _native(**overrides: Any) -> dict[str, Any]:
     """Real matrix codec namespace shape for sender attribution."""
     matrix = {
