@@ -13,7 +13,7 @@ mapping — there is no fallback or default.  An empty mapping raises
 
 When the resolved config contains a non-empty ``relay_prefix``,
 the renderer prepends a formatted prefix to the message text.  The prefix
-template uses Python ``str.format()`` syntax with generic variables:
+template uses the shared named-placeholder grammar with generic variables:
 
 * ``{sender}`` — primary sender label (generic, preferred).
 * ``{sender_short}`` — abbreviated sender label.
@@ -28,8 +28,7 @@ Radio displays are constrained, so the label variables ``sender``,
 ``sender_short``, and ``origin_label`` additionally accept the shared
 ``{nameN}`` truncation suffix — ``{sender3}`` renders the first three
 Unicode code points of the sender label (N >= 1).  A numeric-suffixed
-undeclared name passes through unchanged, per the shared relay-prefix
-formatter contract.  The automatic Matrix default is the
+undeclared name is rejected during validation and rendering.  The automatic Matrix default is the
 ``{sender5}[M]: `` template.
 
 This renderer is owned by the Meshtastic adapter package and is registered
@@ -50,17 +49,16 @@ When a reaction originates outside the configured Meshtastic instances
 (e.g. Matrix → Meshtastic), the renderer emits descriptive text
 rather than a native Meshtastic emoji tapback:
 
-* ``{compact_prefix} reacted {emoji} to "{abbreviated_text}"``
-* Spaces are stripped from the display-name tokens in the prefix to
-  conserve meshnet bandwidth; casing is preserved.  A separator
-  space is inserted between the prefix and ``reacted`` only when the
-  prefix is non-empty.
+* ``{prefix}reacted {emoji} to "{abbreviated_text}"``
+* The prefix preserves the same sender label and casing as ordinary
+  messages. A separator space is added only when a nonempty prefix does
+  not already end in whitespace.
 * When the reacted-to text is genuinely unresolvable (no enriched
-  ``original_text``/``fallback_text`` and no usable event body), the
+  ``original_text``/``fallback_text``), the
   quoted preview degrades to the honest wording ``an earlier message``
   instead of quoting an empty string.
 * ``reply_id`` is set when the original message has a known Meshtastic
-  packet ID (via ``target_native_ref`` or ``meshtastic_reply_id`` metadata),
+  packet ID bound to the destination adapter and channel,
   allowing the descriptive text to be sent as a structured reply.
 * ``emoji`` is **not** set to ``1`` — the payload is plain text, not a
   native tapback.
@@ -203,7 +201,6 @@ class MeshtasticRenderer:
         event: CanonicalEvent,
         relay_prefix: str | None,
         *,
-        compact: bool = False,
         source_origin_label: str | None = None,
         source_attribution: RelayAttribution | None = None,
     ) -> PrefixFormatterResult:
@@ -229,16 +226,12 @@ class MeshtasticRenderer:
         ``origin_label`` accept the shared ``{nameN}`` truncation suffix:
         ``{sender3}`` renders the first three Unicode code points of the
         sender label (N >= 1).  A numeric suffix on an undeclared name is
-        treated as unknown and passes through unchanged.
+        rejected during configuration validation and rendering.
 
-        ``{meshnet_name}`` is not a known variable — it passes through
-        unchanged in templates (recorded as an unknown field).
+        ``{meshnet_name}`` is not a known variable and is rejected.
 
         Falls back to empty strings for any unavailable variables.
         Never renders the literal text ``"None"``.
-
-        When *compact* is ``True``, spaces are stripped from display-name
-        tokens before template substitution.
 
         Parameters
         ----------
@@ -247,13 +240,9 @@ class MeshtasticRenderer:
         relay_prefix:
             The prefix template string.  ``None`` selects the automatic
             attribution template; an empty string disables the prefix.
-        compact:
-            When ``True``, strip spaces from display-name tokens.
         source_origin_label:
-            Pre-resolved origin label.  When non-empty, takes precedence
-            over the source_attribution registry value.  Typically
-            resolved from ``RenderingContext.source_origin_label`` by the
-            caller in :meth:`render`.
+            Route label, including an explicitly empty override. Shared
+            resolution then considers the supplied snapshot and source config.
 
         Returns
         -------
@@ -271,11 +260,6 @@ class MeshtasticRenderer:
                 formatting_error=None,
             )
 
-        # origin_label precedence is resolved by the caller (render()).
-        # When the caller provides source_origin_label (non-None), it
-        # already reflects: ctx.source_origin_label > registry > None.
-        # Fall back to registry only when the caller did not resolve.
-        # Use 'is not None' to preserve explicit empty string labels.
         src_attr_cfg = self._source_attribution.get(event.source_adapter)
         # Project source identity from native metadata via dispatch.
         native_data: dict[str, object] = {}
@@ -299,16 +283,6 @@ class MeshtasticRenderer:
             source_attribution=source_attribution,
             projected_fields=projected,
         )
-        if compact:
-            attr = replace(
-                attr,
-                source_sender_label=(attr.source_sender_label or "").replace(" ", "")
-                or None,
-                source_sender_short_label=(
-                    attr.source_sender_short_label or ""
-                ).replace(" ", "")
-                or None,
-            )
 
         if relay_prefix is None:
             sender = (
@@ -492,7 +466,6 @@ class MeshtasticRenderer:
         prefix_result = self._format_prefix_for(
             event,
             prefix,
-            compact=is_descriptive_reaction and not self._is_meshtastic_source(event),
             source_origin_label=ctx.source_origin_label,
             source_attribution=ctx.source_attribution,
         )
