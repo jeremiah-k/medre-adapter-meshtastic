@@ -48,7 +48,7 @@ with a trailing ellipsis when longer, sourced from canonical relation
 enrichment (`original_text`, then `fallback_text`). When the reacted-to text
 is genuinely unresolvable, the body MUST say `an earlier message` instead of
 quoting an empty string; the literal shape `to ""` MUST NOT reach the wire.
-The complete described body, including the compact attribution prefix and the
+The complete described body, including the attribution prefix and the
 exact reaction key, remains subject to the target's `max_text_bytes` budget.
 
 The mapping is sampled when the reaction is rendered. A reaction queued before

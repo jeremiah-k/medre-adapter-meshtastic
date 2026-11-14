@@ -50,11 +50,13 @@ When a reaction originates outside the configured Meshtastic instances
 (e.g. Matrix → Meshtastic), the renderer emits descriptive text
 rather than a native Meshtastic emoji tapback:
 
-* ``{compact_prefix} reacted {emoji} to "{abbreviated_text}"``
-* Spaces are stripped from the display-name tokens in the prefix to
-  conserve meshnet bandwidth; casing is preserved.  A separator
+* ``{relay_prefix} reacted {emoji} to "{abbreviated_text}"``
+* The reaction prefix is composed exactly like the ordinary-message
+  prefix — same builder, same template, same ``{nameN}`` truncation,
+  no whitespace stripping — matching the MMRelay reference, where the
+  reaction body reuses the message prefix verbatim.  A separator
   space is inserted between the prefix and ``reacted`` only when the
-  prefix is non-empty.
+  prefix is non-empty and does not already end in whitespace.
 * When the reacted-to text is genuinely unresolvable (no enriched
   ``original_text``/``fallback_text`` and no usable event body), the
   quoted preview degrades to the honest wording ``an earlier message``
@@ -195,7 +197,6 @@ class MeshtasticRenderer:
         event: CanonicalEvent,
         relay_prefix: str | None,
         *,
-        compact: bool = False,
         source_origin_label: str | None = None,
     ) -> PrefixFormatterResult:
         """Format a prefix template using adapter projection and the shared
@@ -228,9 +229,6 @@ class MeshtasticRenderer:
         Falls back to empty strings for any unavailable variables.
         Never renders the literal text ``"None"``.
 
-        When *compact* is ``True``, spaces are stripped from display-name
-        tokens before template substitution.
-
         Parameters
         ----------
         event:
@@ -238,8 +236,6 @@ class MeshtasticRenderer:
         relay_prefix:
             The prefix template string.  ``None`` selects the automatic
             attribution template; an empty string disables the prefix.
-        compact:
-            When ``True``, strip spaces from display-name tokens.
         source_origin_label:
             Pre-resolved origin label.  When non-empty, takes precedence
             over the source_attribution registry value.  Typically
@@ -286,13 +282,6 @@ class MeshtasticRenderer:
             source_transport_id=event.source_transport_id,
             platform_hint=platform_hint,
         )
-
-        # Apply compact mode: strip spaces from label fields.
-        if compact:
-            for key in ("source_sender_label", "source_sender_short_label"):
-                val = projected.get(key)
-                if val:
-                    projected[key] = val.replace(" ", "") or None
 
         attr = build_relay_attribution(
             event,
@@ -378,7 +367,7 @@ class MeshtasticRenderer:
           fallback text ``"[reacted: {emoji}]"`` with no ``emoji`` field.
         * *cross-platform reaction* (non-Meshtastic source, e.g.
           Matrix → Meshtastic) — emits descriptive
-          text: ``{compact_prefix} reacted {emoji} to "{abbreviated}"``.
+          text: ``{relay_prefix} reacted {emoji} to "{abbreviated}"``.
           Sets ``reply_id`` if a Meshtastic packet ID is available.
           Does **not** set ``emoji=1``.  When the target text is
           unresolvable the quoted preview degrades to
@@ -519,36 +508,39 @@ class MeshtasticRenderer:
                         else:
                             content["text"] = f"[reacted: {emoji_text}]"
                     else:
-                        # Cross-platform descriptive reaction
+                        # Cross-platform descriptive reaction. The prefix is
+                        # composed exactly like the ordinary-message prefix
+                        # (same builder, no whitespace stripping), matching
+                        # the MMRelay reference behavior.
                         orig_preview = self._abbreviated_original_text(rel)
                         quoted = (
                             f'"{orig_preview}"'
                             if orig_preview
                             else "an earlier message"
                         )
-                        compact_prefix_result = self._format_prefix_for(
+                        reaction_prefix_result = self._format_prefix_for(
                             event,
                             prefix,
-                            compact=True,
                             source_origin_label=effective_origin_label,
                         )
                         # On formatting_exception, use empty prefix to
                         # avoid leaking raw template into reaction text.
                         if (
-                            compact_prefix_result.formatting_error
-                            and compact_prefix_result.formatting_error.startswith(
+                            reaction_prefix_result.formatting_error
+                            and reaction_prefix_result.formatting_error.startswith(
                                 "formatting_exception:"
                             )
                         ):
-                            compact_prefix = ""
+                            reaction_prefix = ""
                         else:
-                            compact_prefix = compact_prefix_result.rendered_prefix
-                        prefix_result = compact_prefix_result
+                            reaction_prefix = reaction_prefix_result.rendered_prefix
+                        prefix_result = reaction_prefix_result
                         sep = ""
-                        if compact_prefix and not compact_prefix[-1:].isspace():
+                        if reaction_prefix and not reaction_prefix[-1:].isspace():
                             sep = " "
                         content["text"] = (
-                            f"{compact_prefix}{sep}reacted {emoji_text} " f"to {quoted}"
+                            f"{reaction_prefix}{sep}reacted {emoji_text} "
+                            f"to {quoted}"
                         )
                         if reply_id is not None:
                             content["reply_id"] = reply_id
@@ -560,7 +552,7 @@ class MeshtasticRenderer:
 
         # Prepend relay prefix when configured
         # (skip for native emoji-only reactions; descriptive reactions
-        # already include their compact prefix in the text).
+        # already include their reaction prefix in the text).
         if is_structured_reaction and prefix != "":
             # Native tapback: do NOT prepend prefix to text, but still
             # populate relay-prefix metadata so downstream consumers can
@@ -689,7 +681,7 @@ class MeshtasticRenderer:
         -------
         tuple[str, PrefixFormatterResult | None]
             ``(text, prefix_result)`` where *text* has relation semantics
-            degraded into readable form and *prefix_result* is the compact
+            degraded into readable form and *prefix_result* is the reaction
             prefix formatter result when a cross-platform reaction was
             rendered, or ``None`` otherwise.
         """
@@ -712,29 +704,33 @@ class MeshtasticRenderer:
                 # Native reaction degraded to readable text (no tapback).
                 return (f"[reacted: {emoji_text}]", None)
             # Cross-platform reaction: descriptive text,
-            # but without native reply_id.
+            # but without native reply_id. The prefix is composed exactly
+            # like the ordinary-message prefix (same builder, no whitespace
+            # stripping), matching the MMRelay reference behavior.
             orig_preview = self._abbreviated_original_text(rel)
             quoted = f'"{orig_preview}"' if orig_preview else "an earlier message"
-            cp_result = self._format_prefix_for(
+            reaction_prefix_result = self._format_prefix_for(
                 event,
                 prefix,
-                compact=True,
                 source_origin_label=source_origin_label,
             )
             # On formatting_exception, use empty prefix to avoid
             # leaking raw template into reaction text.
-            if cp_result.formatting_error and cp_result.formatting_error.startswith(
-                "formatting_exception:"
+            if (
+                reaction_prefix_result.formatting_error
+                and reaction_prefix_result.formatting_error.startswith(
+                    "formatting_exception:"
+                )
             ):
-                compact_prefix = ""
+                reaction_prefix = ""
             else:
-                compact_prefix = cp_result.rendered_prefix
+                reaction_prefix = reaction_prefix_result.rendered_prefix
             sep = ""
-            if compact_prefix and not compact_prefix[-1:].isspace():
+            if reaction_prefix and not reaction_prefix[-1:].isspace():
                 sep = " "
             return (
-                f"{compact_prefix}{sep}reacted {emoji_text} " f"to {quoted}",
-                cp_result,
+                f"{reaction_prefix}{sep}reacted {emoji_text} " f"to {quoted}",
+                reaction_prefix_result,
             )
 
         if rel.relation_type == "edit":
