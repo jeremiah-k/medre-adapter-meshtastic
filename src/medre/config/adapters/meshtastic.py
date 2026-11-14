@@ -8,6 +8,11 @@ passing it to :class:`MeshtasticAdapter`.
 
 from __future__ import annotations
 
+from medre.core.rendering.attribution import (
+    validate_relay_prefix,
+    TRUNCATABLE_RELAY_LABELS,
+)
+
 import math
 from dataclasses import dataclass, field
 from typing import Literal, Self
@@ -387,4 +392,10 @@ class MeshtasticConfig:
                 f"relay_prefix must be a str, "
                 f"got {type(self.relay_prefix).__name__}"
             )
+        try:
+            validate_relay_prefix(
+                self.relay_prefix, truncatable=TRUNCATABLE_RELAY_LABELS
+            )
+        except ValueError as exc:
+            raise MeshtasticConfigError(str(exc)) from exc
         return self

@@ -1,18 +1,14 @@
-"""Target-selection rule tests for MeshtasticRenderer.
+"""Destination-scoped target-selection rules for MeshtasticRenderer.
 
-Locks the current target-selection contracts:
-
-* MeshtasticRenderer uses ``relations[0]`` only — subsequent relations ignored.
-* Reply target: ``_meshtastic_reply_id_from_relation`` returns a numeric ID
-  when ``target_native_ref.adapter == target_adapter`` and the native_message_id
-  is numeric.  Cross-adapter refs are rejected.
-* Metadata fallback: when no owned native ref exists, the renderer falls back
-  to ``relation.metadata["meshtastic_reply_id"]``.
-* Reaction: native Meshtastic tapback (``emoji=1`` + ``reply_id``) when
-  ``event.source_adapter == target_adapter`` and a numeric ref exists.
-  Cross-platform reactions use descriptive text.
-* Missing target (empty relations): renders plain text.
-* Stale native target: no pre-validation — renderer trusts the ref blindly.
+* One reply/reaction relation may use an adapter- and channel-matched native ID.
+* Mixed relations are described in tuple order with authored message text once.
+* A core binding fact takes precedence over the relation's raw native ref;
+  negative facts cannot be bypassed, and numeric metadata grants no authority.
+* Reaction-only events from configured Meshtastic sources may become native
+  tapbacks; authored messages carrying reaction context remain described text.
+* Omitted route channels resolve to the configured default channel, which must
+  match the native channel recorded by the transport handoff.
+* Unknown, mismatched and ambiguous bindings degrade without native fields.
 """
 
 from __future__ import annotations
@@ -70,7 +66,11 @@ def _event(
 ) -> CanonicalEvent:
     return CanonicalEvent(
         event_id="evt-001",
-        event_kind="message.created",
+        event_kind=(
+            "message.reacted"
+            if len(relations) == 1 and relations[0].relation_type == "reaction"
+            else "message.created"
+        ),
         schema_version=1,
         timestamp=datetime.now(UTC),
         source_adapter=source_adapter,
@@ -165,8 +165,8 @@ async def test_reply_no_reply_id_when_ref_is_non_numeric() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_metadata_fallback_for_meshtastic_reply_id() -> None:
-    """When no owned native ref, falls back to metadata meshtastic_reply_id."""
+async def test_unbound_metadata_cannot_bind_meshtastic_reply_id() -> None:
+    """Without an owned native ref, numeric metadata cannot bind."""
     renderer = _renderer()
     rel = _reply_rel(
         adapter="other-radio",
@@ -176,7 +176,7 @@ async def test_metadata_fallback_for_meshtastic_reply_id() -> None:
     event = _event(relations=(rel,))
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("reply_id") == 77
+    assert "reply_id" not in result.payload
 
 
 async def test_metadata_fallback_ignored_when_owned_ref_exists() -> None:
@@ -289,25 +289,27 @@ async def test_stale_native_reply_id_emitted_without_validation() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Multiple relations — only relations[0] is used
+# Multiple relations — describe all on a single-relation radio
 # ---------------------------------------------------------------------------
 
 
-async def test_multiple_relations_uses_only_first() -> None:
-    """When multiple relations exist, only relations[0] determines output."""
+async def test_multiple_relations_describe_both() -> None:
+    """Multiple relations preserve both descriptions."""
     renderer = _renderer()
     rel1 = _reply_rel(adapter=_TARGET, native_message_id="10")
     rel2 = _reaction_rel(adapter=_TARGET, native_message_id="20")
     event = _event(relations=(rel1, rel2))
     result = await renderer.render(event, _ctx())
 
-    # First relation is a reply — reply_id from rel1, no emoji from rel2
-    assert result.payload.get("reply_id") == 10
+    # Neither native field can represent the complete relation set.
+    assert "reply_id" not in result.payload
+    assert "[replying to:" in result.payload["text"]
+    assert "reacted 👍" in result.payload["text"]
     assert "emoji" not in result.payload
 
 
-async def test_second_relation_ignored_when_first_is_reaction() -> None:
-    """Second relation ignored; first (reaction) determines output."""
+async def test_reaction_and_reply_both_described() -> None:
+    """Describe both relations without native tapback fields."""
     renderer = _renderer()
     rel1 = _reaction_rel(adapter=_TARGET, native_message_id="30", key="🔥")
     rel2 = _reply_rel(adapter=_TARGET, native_message_id="40")
@@ -318,9 +320,10 @@ async def test_second_relation_ignored_when_first_is_reaction() -> None:
     )
     result = await renderer.render(event, _ctx())
 
-    # First relation is reaction → emoji=1, reply_id=30
-    assert result.payload.get("emoji") == 1
-    assert result.payload.get("reply_id") == 30
+    assert "emoji" not in result.payload
+    assert "reply_id" not in result.payload
+    assert "reacted 🔥" in result.payload["text"]
+    assert "[replying to:" in result.payload["text"]
 
 
 # ---------------------------------------------------------------------------

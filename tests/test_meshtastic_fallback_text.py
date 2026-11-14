@@ -19,6 +19,7 @@ from medre.core.events import (
     EventRelation,
     NativeRef,
 )
+from medre.core.rendering.relations import relation_target_display
 from medre.core.rendering.renderer import RenderingContext
 
 # ---------------------------------------------------------------------------
@@ -48,7 +49,13 @@ def _make_event(
 ) -> CanonicalEvent:
     return CanonicalEvent(
         event_id="evt-1",
-        event_kind="message.created",
+        event_kind=(
+            "message.reacted"
+            if relations
+            and len(relations) == 1
+            and relations[0].relation_type == "reaction"
+            else "message.created"
+        ),
         schema_version=1,
         timestamp=datetime.now(timezone.utc),
         source_adapter=source_adapter,
@@ -90,8 +97,8 @@ class TestFallbackTextReaction:
     """Reaction branch of _render_fallback_text."""
 
     @pytest.mark.asyncio
-    async def test_native_reaction_degraded_to_bracket_text(self) -> None:
-        """Native reaction (same adapter) → '[reacted: {emoji}]'.
+    async def test_native_reaction_degraded_to_description(self) -> None:
+        """Reaction without native delivery uses a shared description.
 
         Exercises lines 504-506.
         """
@@ -106,7 +113,7 @@ class TestFallbackTextReaction:
                 delivery_strategy="fallback_text",
             ),
         )
-        assert result.payload["text"] == "[reacted: 👍]"
+        assert result.payload["text"] == "reacted 👍 to an earlier message"
 
     @pytest.mark.asyncio
     async def test_native_reaction_rejects_emoji_from_payload_key(self) -> None:
@@ -285,11 +292,11 @@ class TestResolveReplyTargetMarker:
             key=None,
             fallback_text=None,
         )
-        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
+        result = relation_target_display(rel)
         assert result == "evt-abc"
 
-    def test_returns_none_when_no_ref_and_no_event_id(self) -> None:
-        """target_native_ref is None, target_event_id is None → returns None.
+    def test_returns_unknown_when_no_ref_and_no_event_id(self) -> None:
+        """target_native_ref is None, target_event_id is None → unknown message.
 
         Exercises line 544.
         """
@@ -300,36 +307,16 @@ class TestResolveReplyTargetMarker:
             key=None,
             fallback_text=None,
         )
-        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
-        assert result is None
+        result = relation_target_display(rel)
+        assert result == "unknown message"
 
-    def test_native_ref_without_message_id_falls_through_to_event_id(self) -> None:
-        """target_native_ref exists but native_message_id is None → falls to target_event_id.
-
-        Exercises lines 537-541 (ref is not None, mid is None) then 542-543.
-        """
-        # NativeRef requires native_message_id as positional arg; use a mock-like object
-        # We need an object with native_message_id=None but that passes the ref is not None check.
-        # NativeRef is a struct, so create one then check if native_message_id can be None.
-        # Looking at the code: getattr(ref, "native_message_id", None) - if it returns None, falls through.
-        # NativeRef has native_message_id as a required field, so it can't be None normally.
-        # We can test the fallthrough by creating a NativeRef and checking target_event_id path.
-        # Actually, let's test with a real NativeRef (native_message_id is always set).
-        # The real uncovered case is when ref has no native_message_id attribute at all.
-        # We can use a simple object for this.
-
-        class FakeRef:
-            """An object that has no native_message_id attribute."""
-
-            pass
-
+    def test_canonical_target_marker_precedes_native_id(self) -> None:
+        """A valid native reference cannot replace known canonical correlation."""
         rel = EventRelation(
             relation_type="reply",
             target_event_id="evt-fallback",
-            target_native_ref=FakeRef(),  # type: ignore[arg-type]
+            target_native_ref=NativeRef("source", "0", "123"),
             key=None,
             fallback_text=None,
         )
-        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
-        # getattr(FakeRef(), "native_message_id", None) → None → falls to target_event_id
-        assert result == "evt-fallback"
+        assert relation_target_display(rel) == "evt-fall…"

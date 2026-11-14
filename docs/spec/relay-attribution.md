@@ -7,6 +7,9 @@ Missing display names fall back to the source sender identity. Other
 platforms use the generic short sender followed by `": "` and MUST NOT
 receive a Matrix marker.
 
+Messages and descriptive reactions MUST resolve the same sender label for
+the same template. Reaction rendering MUST NOT remove spaces from that label.
+
 A configured string MUST take precedence; `relay_prefix: ""` MUST disable
 the prefix. Custom `{sender_short}` templates retain their existing account-name
 semantics. Prefix presentation MUST NOT rewrite the canonical sender metadata.
@@ -17,8 +20,8 @@ the shared `{nameN}` truncation suffix, rendering the first N Unicode
 code points of the variable's value. The suffix counts code points,
 never bytes, and N MUST be at least 1 (`{sender0}` is not a truncation
 variable). A numeric-suffixed name whose stem is not declared
-truncatable for this transport passes through unchanged — roomy
-transports declare no truncatable names. The shared relay-prefix
+truncatable for this transport is rejected during configuration validation —
+roomy transports declare no truncatable names. The shared relay-prefix
 formatter specification defines the full contract.
 
 The entire composed prefix, reply/reaction text and message MUST fit the target's
@@ -58,3 +61,7 @@ It MUST NOT be automatically upgraded or submitted a second time. A subsequent
 reaction MAY use a destination mapping established by that later time. Waiting
 for mappings or upgrading a completed fallback requires a separate durable
 relation-delivery policy; it is not an implicit renderer retry.
+
+Only a reaction-only event (`message.reacted` with one reaction relation) may
+use key-only native tapback rendering. Authored messages with reaction context
+retain their body and describe the reaction inline, without a tapback flag.

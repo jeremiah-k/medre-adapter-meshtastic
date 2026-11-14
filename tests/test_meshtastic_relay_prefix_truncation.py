@@ -169,20 +169,18 @@ async def test_sender_short_truncation_suffix(renderer):
 
 
 # ---------------------------------------------------------------------------
-# Undeclared or invalid suffixes pass through unchanged
+# Undeclared or invalid suffixes are rejected
 # ---------------------------------------------------------------------------
 
 
 async def test_zero_suffix_is_not_a_truncation_variable(renderer):
-    result = await render(renderer, relay_prefix="{sender0}: ")
-    assert result.payload["text"] == "{sender0}: Testing from Matrix"
-    assert result.metadata["relay_prefix_unknown_variables"] == ("sender0",)
+    with pytest.raises(ValueError, match="Invalid relay_prefix"):
+        await render(renderer, relay_prefix="{sender0}: ")
 
 
-async def test_undeclared_stem_with_suffix_stays_literal(renderer):
-    result = await render(renderer, relay_prefix="{sender_id3}: ")
-    assert result.payload["text"] == "{sender_id3}: Testing from Matrix"
-    assert result.metadata["relay_prefix_unknown_variables"] == ("sender_id3",)
+async def test_undeclared_stem_with_suffix_rejected(renderer):
+    with pytest.raises(ValueError, match="Invalid relay_prefix"):
+        await render(renderer, relay_prefix="{sender_id3}: ")
 
 
 async def test_plain_variables_are_unaffected_by_declaration(renderer):

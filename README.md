@@ -114,7 +114,7 @@ separate qualification tiers.
 
 The repository CI installs MEDRE core and this adapter. Its fake job omits
 native SDK dependencies; its SDK job installs this distribution's declared pins.
-CI tests against MEDRE `main` by default. Keep the repository Actions variable
+CI resolves MEDRE `main` once per run by default. Keep the repository Actions variable
 `MEDRE_CORE_REF` unset so pull-request checks retain that baseline. Qualify a
 candidate pair with a one-run dispatch and a full core commit SHA:
 
