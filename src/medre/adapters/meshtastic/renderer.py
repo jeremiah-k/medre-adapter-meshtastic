@@ -80,7 +80,7 @@ from medre.core.rendering.attribution import (
     PrefixFormatterResult,
     RelayAttribution,
     resolve_relay_attribution,
-    format_relay_prefix,
+    format_checked_relay_prefix,
 )
 from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.rendering.relations import (
@@ -310,7 +310,7 @@ class MeshtasticRenderer:
                     source_sender_short_label=attr.source_sender_short_label or sender,
                 )
                 relay_prefix = "{sender_short}: "
-        result = format_relay_prefix(
+        result = format_checked_relay_prefix(
             relay_prefix, attr, truncatable=TRUNCATABLE_RELAY_LABELS
         )
         if result.formatting_error:
