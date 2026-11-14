@@ -84,6 +84,7 @@ from medre.core.rendering.attribution import (
 )
 from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.rendering.relations import (
+    compose_relation_text,
     describe_reaction,
     reaction_key,
     destination_native_message_id,
@@ -462,7 +463,10 @@ class MeshtasticRenderer:
                 if reply_id is not None:
                     content["reply_id"] = reply_id
         elif rel is not None and rel.relation_type == "reply" and reply_id is not None:
-            content.update(text=body, reply_id=reply_id)
+            content.update(
+                text=compose_relation_text(event, body, represented=(rel,)),
+                reply_id=reply_id,
+            )
         else:
             content["text"] = extract_event_text(event)
 

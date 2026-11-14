@@ -200,3 +200,25 @@ async def test_omitted_route_cannot_bypass_unknown_wrong_or_ambiguous_channel(
     assert result.payload["channel_index"] == 4
     assert "reply_id" not in result.payload
     assert "emoji" not in result.payload
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("message.created", "Please check"),
+        ("message.edited", "[edited] Please check"),
+        ("message.deleted", "[deleted]"),
+        ("message.reacted", "[reacted]"),
+    ],
+)
+async def test_bound_reply_preserves_shared_event_kind_semantics(
+    kind: str, expected: str
+) -> None:
+    relation = EventRelation("reply", None, NativeRef(TARGET, "4", "9001"), None, None)
+    result = await _renderer().render(
+        _event("Please check", (relation,), kind=kind),
+        RenderingContext(target_adapter=TARGET, delivery_strategy="direct"),
+    )
+    assert result.payload["reply_id"] == 9001
+    assert result.payload["text"] == expected
+    assert "emoji" not in result.payload
