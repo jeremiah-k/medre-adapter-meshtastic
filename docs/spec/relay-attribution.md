@@ -17,8 +17,8 @@ the shared `{nameN}` truncation suffix, rendering the first N Unicode
 code points of the variable's value. The suffix counts code points,
 never bytes, and N MUST be at least 1 (`{sender0}` is not a truncation
 variable). A numeric-suffixed name whose stem is not declared
-truncatable for this transport passes through unchanged — roomy
-transports declare no truncatable names. The shared relay-prefix
+truncatable for this transport is rejected during configuration validation —
+roomy transports declare no truncatable names. The shared relay-prefix
 formatter specification defines the full contract.
 
 The entire composed prefix, reply/reaction text and message MUST fit the target's

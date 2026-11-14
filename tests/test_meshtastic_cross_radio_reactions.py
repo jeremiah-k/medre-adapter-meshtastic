@@ -142,7 +142,7 @@ async def test_native_reaction_crosses_radios_after_durable_handoff(
             assert wire["reply_id"] == 9001
             assert wire["emoji"] == 1
         else:
-            assert wire["text"] == "[reacted: 👍]"
+            assert wire["text"] == 'reacted 👍 to "radio original"'
             assert "reply_id" not in wire
             assert "emoji" not in wire
         assert wire["channel_index"] == target_channel
@@ -215,7 +215,7 @@ async def test_unresolved_source_packet_id_is_not_reused_on_another_radio(
     assert "reply_id" not in result.payload
     assert "emoji" not in result.payload
     if relation_kind == "reaction":
-        assert result.payload["text"] == "[reacted: 👍]"
+        assert result.payload["text"] == "reacted 👍 to an earlier message"
 
 
 @pytest.mark.meshtastic_sdk

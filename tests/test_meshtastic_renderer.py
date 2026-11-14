@@ -323,77 +323,25 @@ class TestMeshtasticRenderer:
         assert result.payload["text"] != long_text
 
 
-# ===================================================================
-# _meshtastic_reply_id_from_relation
-# ===================================================================
-
-
-class TestNativeReplyIdFromRelation:
-    """Tests for MeshtasticRenderer._meshtastic_reply_id_from_relation."""
-
-    def test_numeric_native_message_id_returns_int(self) -> None:
-        rel = _make_relation(native_message_id="42")
-        assert (
-            MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") == 42
-        )
-
-    def test_large_numeric_id(self) -> None:
-        rel = _make_relation(native_message_id="8589934592")
-        assert (
-            MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1")
-            == 8589934592
-        )
-
-    def test_non_numeric_returns_none(self) -> None:
-        rel = _make_relation(native_message_id="$event:room.xyz")
-        assert (
-            MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
-        )
-
-    def test_no_native_ref_returns_none(self) -> None:
-        rel = _make_relation(native_message_id=None)
-        assert (
-            MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
-        )
-
-    def test_empty_string_returns_none(self) -> None:
-        rel = _make_relation(native_message_id="")
-        assert (
-            MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
-        )
-
-    def test_foreign_adapter_ignored_but_metadata_fallback(self) -> None:
-        """Native ref from foreign adapter returns None (no fallback metadata)."""
-        foreign_ref = NativeRef(
-            adapter="matrix-1", native_channel_id="!r", native_message_id="123"
-        )
-        rel = EventRelation(
-            relation_type="reply",
-            target_event_id="evt-1",
-            target_native_ref=foreign_ref,
-            key=None,
-            fallback_text="original",
-        )
-        assert (
-            MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") is None
-        )
-
-    def test_metadata_reply_id_fallback_works(self) -> None:
-        """Relation metadata meshtastic_reply_id provides a fallback reply ID."""
-        foreign_ref = NativeRef(
-            adapter="matrix-1", native_channel_id="!r", native_message_id="abc"
-        )
-        rel = EventRelation(
-            relation_type="reply",
-            target_event_id="evt-1",
-            target_native_ref=foreign_ref,
-            key=None,
-            fallback_text="original",
-            metadata={"meshtastic_reply_id": "77"},
-        )
-        assert (
-            MeshtasticRenderer._meshtastic_reply_id_from_relation(rel, "mesh-1") == 77
-        )
+@pytest.mark.parametrize(
+    "packet_id,expected",
+    [
+        ("42", 42),
+        ("4294967295", 4294967295),
+        ("4294967296", None),
+        ("0", None),
+        ("-1", None),
+        ("invalid", None),
+        (None, None),
+        ("", None),
+    ],
+)
+async def test_native_reply_packet_id_domain(packet_id, expected):
+    result = await _make_renderer("mesh-1").render(
+        _make_event(relations=(_make_relation(native_message_id=packet_id),)),
+        RenderingContext(target_adapter="mesh-1", delivery_strategy="direct"),
+    )
+    assert result.payload.get("reply_id") == expected
 
 
 # ===================================================================
@@ -426,8 +374,8 @@ class TestRendererStructuredReply:
         # channel_index preserved
         assert result.payload["channel_index"] == 0
 
-    async def test_reply_without_native_ref_plain_text(self) -> None:
-        """Reply without numeric native ref → plain text, no fallback prefix."""
+    async def test_reply_without_native_ref_described(self) -> None:
+        """Reply without numeric native ref → described text."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
@@ -442,11 +390,10 @@ class TestRendererStructuredReply:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         assert "reply_id" not in result.payload
-        # No "[replying to: …]" prefix — plain text only.
-        assert result.payload["text"] == "my reply"
+        assert result.payload["text"] == "[replying to: original msg] my reply"
 
-    async def test_reply_with_non_numeric_ref_plain_text(self) -> None:
-        """Reply with non-numeric native_message_id → plain text, no fallback prefix."""
+    async def test_reply_with_non_numeric_ref_described(self) -> None:
+        """Reply with non-numeric native_message_id → described text."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
@@ -461,8 +408,7 @@ class TestRendererStructuredReply:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         assert "reply_id" not in result.payload
-        # No "[replying to: …]" prefix — plain text only.
-        assert result.payload["text"] == "my reply"
+        assert result.payload["text"] == "[replying to: non-mesh msg] my reply"
 
     async def test_reply_preserves_channel_index(self) -> None:
         """Reply rendering preserves target channel."""
@@ -481,7 +427,8 @@ class TestRendererStructuredReply:
                 target_adapter="mesh-1", delivery_strategy="direct", target_channel="2"
             ),
         )
-        assert result.payload["reply_id"] == 10
+        assert "reply_id" not in result.payload
+        assert "[replying to:" in result.payload["text"]
         assert result.payload["channel_index"] == 2
 
 
@@ -564,7 +511,7 @@ class TestRendererStructuredReaction:
         )
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
-        assert "[reacted: 👍]" in result.payload["text"]
+        assert "reacted 👍 to an earlier message" in result.payload["text"]
 
     async def test_reaction_preserves_channel(self) -> None:
         """Reaction rendering preserves channel_index."""
@@ -608,8 +555,7 @@ class TestMeshtasticRendererForeignRefs:
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
         assert "reply_id" not in result.payload
-        # Plain text only — no "[replying to: …]" prefix for non-native replies.
-        assert result.payload["text"] == "hello"
+        assert result.payload["text"] == "[replying to: orig msg] hello"
 
     async def test_foreign_native_ref_not_used_for_reaction(self) -> None:
         """Matrix native ref must not produce reply_id + emoji when rendering reaction to Meshtastic."""
@@ -630,10 +576,10 @@ class TestMeshtasticRendererForeignRefs:
         )
         assert "reply_id" not in result.payload
         assert "emoji" not in result.payload
-        assert "[reacted: 👍]" in result.payload["text"]
+        assert "reacted 👍 to an earlier message" in result.payload["text"]
 
-    async def test_metadata_fallback_for_reply(self) -> None:
-        """Relation with metadata meshtastic_reply_id renders reply_id=id even without native ref."""
+    async def test_unbound_metadata_cannot_bind_reply(self) -> None:
+        """Numeric relation metadata alone cannot bind a reply."""
         renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reply",
@@ -647,10 +593,11 @@ class TestMeshtasticRendererForeignRefs:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert result.payload["reply_id"] == 42
+        assert "reply_id" not in result.payload
+        assert "[replying to: orig msg]" in result.payload["text"]
 
-    async def test_metadata_fallback_for_reaction(self) -> None:
-        """Relation with metadata meshtastic_reply_id renders reply_id + emoji=1."""
+    async def test_unbound_metadata_cannot_bind_reaction(self) -> None:
+        """Numeric relation metadata alone cannot bind a reaction."""
         renderer = _make_renderer("mesh-1")
         rel = EventRelation(
             relation_type="reaction",
@@ -664,8 +611,9 @@ class TestMeshtasticRendererForeignRefs:
         result = await renderer.render(
             event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
         )
-        assert result.payload["reply_id"] == 77
-        assert result.payload["emoji"] == 1
+        assert "reply_id" not in result.payload
+        assert "emoji" not in result.payload
+        assert "reacted 🔥 to an earlier message" in result.payload["text"]
 
     async def test_non_numeric_metadata_reply_id_falls_back(self) -> None:
         """Non-numeric meshtastic_reply_id in metadata falls back to readable text."""
@@ -785,7 +733,7 @@ async def test_malformed_native_reaction_key_fails_before_rendering(key):
     event = _make_event(
         payload={"body": "valid"}, relations=(_make_relation("reaction", key=key),)
     )
-    with pytest.raises(ValueError, match="Reaction key must be text"):
+    with pytest.raises(ValueError, match="explicit nonempty key"):
         await _make_renderer().render(
             event, RenderingContext("direct", "mesh-1", "0", "meshtastic")
         )

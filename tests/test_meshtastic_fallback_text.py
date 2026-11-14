@@ -19,6 +19,7 @@ from medre.core.events import (
     EventRelation,
     NativeRef,
 )
+from medre.core.rendering.relations import relation_target_display
 from medre.core.rendering.renderer import RenderingContext
 
 # ---------------------------------------------------------------------------
@@ -285,7 +286,7 @@ class TestResolveReplyTargetMarker:
             key=None,
             fallback_text=None,
         )
-        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
+        result = relation_target_display(rel)
         assert result == "evt-abc"
 
     def test_returns_none_when_no_ref_and_no_event_id(self) -> None:
@@ -300,7 +301,7 @@ class TestResolveReplyTargetMarker:
             key=None,
             fallback_text=None,
         )
-        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
+        result = relation_target_display(rel)
         assert result is None
 
     def test_native_ref_without_message_id_falls_through_to_event_id(self) -> None:
@@ -330,6 +331,6 @@ class TestResolveReplyTargetMarker:
             key=None,
             fallback_text=None,
         )
-        result = MeshtasticRenderer._resolve_reply_target_marker(rel)
+        result = relation_target_display(rel)
         # getattr(FakeRef(), "native_message_id", None) → None → falls to target_event_id
         assert result == "evt-fallback"

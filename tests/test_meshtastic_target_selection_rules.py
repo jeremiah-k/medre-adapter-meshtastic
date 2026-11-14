@@ -165,8 +165,8 @@ async def test_reply_no_reply_id_when_ref_is_non_numeric() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_metadata_fallback_for_meshtastic_reply_id() -> None:
-    """When no owned native ref, falls back to metadata meshtastic_reply_id."""
+async def test_unbound_metadata_cannot_bind_meshtastic_reply_id() -> None:
+    """Without an owned native ref, numeric metadata cannot bind."""
     renderer = _renderer()
     rel = _reply_rel(
         adapter="other-radio",
@@ -176,7 +176,7 @@ async def test_metadata_fallback_for_meshtastic_reply_id() -> None:
     event = _event(relations=(rel,))
     result = await renderer.render(event, _ctx())
 
-    assert result.payload.get("reply_id") == 77
+    assert "reply_id" not in result.payload
 
 
 async def test_metadata_fallback_ignored_when_owned_ref_exists() -> None:
@@ -289,25 +289,27 @@ async def test_stale_native_reply_id_emitted_without_validation() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Multiple relations — only relations[0] is used
+# Multiple relations — describe all on a single-relation radio
 # ---------------------------------------------------------------------------
 
 
-async def test_multiple_relations_uses_only_first() -> None:
-    """When multiple relations exist, only relations[0] determines output."""
+async def test_multiple_relations_describe_both() -> None:
+    """Multiple relations preserve both descriptions."""
     renderer = _renderer()
     rel1 = _reply_rel(adapter=_TARGET, native_message_id="10")
     rel2 = _reaction_rel(adapter=_TARGET, native_message_id="20")
     event = _event(relations=(rel1, rel2))
     result = await renderer.render(event, _ctx())
 
-    # First relation is a reply — reply_id from rel1, no emoji from rel2
-    assert result.payload.get("reply_id") == 10
+    # Neither native field can represent the complete relation set.
+    assert "reply_id" not in result.payload
+    assert "[replying to:" in result.payload["text"]
+    assert "reacted 👍" in result.payload["text"]
     assert "emoji" not in result.payload
 
 
-async def test_second_relation_ignored_when_first_is_reaction() -> None:
-    """Second relation ignored; first (reaction) determines output."""
+async def test_reaction_and_reply_both_described() -> None:
+    """Describe both relations without native tapback fields."""
     renderer = _renderer()
     rel1 = _reaction_rel(adapter=_TARGET, native_message_id="30", key="🔥")
     rel2 = _reply_rel(adapter=_TARGET, native_message_id="40")
@@ -318,9 +320,10 @@ async def test_second_relation_ignored_when_first_is_reaction() -> None:
     )
     result = await renderer.render(event, _ctx())
 
-    # First relation is reaction → emoji=1, reply_id=30
-    assert result.payload.get("emoji") == 1
-    assert result.payload.get("reply_id") == 30
+    assert "emoji" not in result.payload
+    assert "reply_id" not in result.payload
+    assert "reacted 🔥" in result.payload["text"]
+    assert "[replying to:" in result.payload["text"]
 
 
 # ---------------------------------------------------------------------------
