@@ -1,18 +1,14 @@
-"""Target-selection rule tests for MeshtasticRenderer.
+"""Destination-scoped target-selection rules for MeshtasticRenderer.
 
-Locks the current target-selection contracts:
-
-* MeshtasticRenderer uses ``relations[0]`` only — subsequent relations ignored.
-* Reply target: ``_meshtastic_reply_id_from_relation`` returns a numeric ID
-  when ``target_native_ref.adapter == target_adapter`` and the native_message_id
-  is numeric.  Cross-adapter refs are rejected.
-* Metadata fallback: when no owned native ref exists, the renderer falls back
-  to ``relation.metadata["meshtastic_reply_id"]``.
-* Reaction: native Meshtastic tapback (``emoji=1`` + ``reply_id``) when
-  ``event.source_adapter == target_adapter`` and a numeric ref exists.
-  Cross-platform reactions use descriptive text.
-* Missing target (empty relations): renders plain text.
-* Stale native target: no pre-validation — renderer trusts the ref blindly.
+* One reply/reaction relation may use an adapter- and channel-matched native ID.
+* Mixed relations are described in tuple order with authored message text once.
+* A core binding fact takes precedence over the relation's raw native ref;
+  negative facts cannot be bypassed, and numeric metadata grants no authority.
+* Reaction-only events from configured Meshtastic sources may become native
+  tapbacks; authored messages carrying reaction context remain described text.
+* Omitted route channels resolve to the configured default channel, which must
+  match the native channel recorded by the transport handoff.
+* Unknown, mismatched and ambiguous bindings degrade without native fields.
 """
 
 from __future__ import annotations
