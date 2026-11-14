@@ -317,7 +317,7 @@ class TestPerUserDistinctMessages:
         users = [
             ("@alice:example.org", "Alice A"),
             ("@bobby:example.org", "Bobby B"),
-            ("@tad:example.org", "Tad C"),
+            ("@bob:example.org", "Bob S"),
         ]
         texts = []
         for sender, display in users:
