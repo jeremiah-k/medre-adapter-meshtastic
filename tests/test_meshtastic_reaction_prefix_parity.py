@@ -9,9 +9,9 @@ MEDRE matches that: the reaction path applies no space stripping before
 ``{nameN}`` truncation.
 
 The regression this pins: for a sender whose display name contains a
-space (e.g. ``Tad Chadwick``), the reaction prefix used to strip spaces
-before truncation (``TadCh[M]: reacted …``) while ordinary messages kept
-them (``Tad C[M]: hello``).
+space (e.g. ``Bob Smith``), the reaction prefix used to strip spaces
+before truncation (``BobS[M]: reacted …``) while ordinary messages kept
+them (``Bob S[M]: hello``).
 """
 
 from __future__ import annotations
@@ -34,14 +34,14 @@ from medre.core.rendering.renderer import RenderingContext, RenderingResult
 MATRIX_ADAPTER = "matrix-home"
 MESH_ADAPTER = "mesh-lf"
 ROOM_ID = "!room:example.org"
-SENDER_MXID = "@tad:example.org"
-DISPLAY_NAME = "Tad Chadwick"
+SENDER_MXID = "@bob:example.org"
+DISPLAY_NAME = "Bob Smith"
 REACTION_KEY = "👍"
 
 # The automatic matrix prefix: first five code points of the display
 # name, the Matrix marker, and the template's trailing ": " — identical
 # on the message path and the reaction path.
-EXPECTED_PREFIX = "Tad C[M]: "
+EXPECTED_PREFIX = "Bob S[M]: "
 
 
 @pytest.fixture(autouse=True)
@@ -158,8 +158,8 @@ async def test_reaction_prefix_matches_message_prefix_for_spaced_sender() -> Non
     """Same sender: message and described reaction share one prefix shape."""
     message = await _render(_ordinary_message())
     reaction = await _render(_described_reaction())
-    assert str(message.payload["text"]) == "Tad C[M]: hello"
-    assert str(reaction.payload["text"]) == "Tad C[M]: reacted 👍 to an earlier message"
+    assert str(message.payload["text"]) == "Bob S[M]: hello"
+    assert str(reaction.payload["text"]) == "Bob S[M]: reacted 👍 to an earlier message"
     assert message.metadata["relay_prefix_rendered"] == EXPECTED_PREFIX
     assert reaction.metadata["relay_prefix_rendered"] == EXPECTED_PREFIX
 
@@ -168,8 +168,8 @@ async def test_reaction_prefix_matches_message_prefix_in_fallback_mode() -> None
     """fallback_text composes the reaction prefix the same way."""
     message = await _render(_ordinary_message(), strategy="fallback_text")
     reaction = await _render(_described_reaction(), strategy="fallback_text")
-    assert str(message.payload["text"]) == "Tad C[M]: hello"
-    assert str(reaction.payload["text"]) == "Tad C[M]: reacted 👍 to an earlier message"
+    assert str(message.payload["text"]) == "Bob S[M]: hello"
+    assert str(reaction.payload["text"]) == "Bob S[M]: reacted 👍 to an earlier message"
 
 
 @pytest.mark.parametrize(
@@ -177,7 +177,7 @@ async def test_reaction_prefix_matches_message_prefix_in_fallback_mode() -> None
     [
         # Truncation lands inside the name's inner whitespace run; both
         # paths must keep it verbatim (MMRelay truncates by plain slicing).
-        ("Bob  Smith", "Bob  [M]: "),
+        ("Max  Turner", "Max  [M]: "),
         # Single-space name truncating exactly at the boundary.
         ("Ann O'Neill", "Ann O[M]: "),
     ],

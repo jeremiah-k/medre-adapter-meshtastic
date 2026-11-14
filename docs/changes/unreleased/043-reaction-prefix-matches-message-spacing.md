@@ -3,7 +3,7 @@
 Described cross-transport reactions delivered to Meshtastic (for example,
 Matrix → Meshtastic) previously stripped spaces from the sender label
 before `{nameN}` truncation, so the same Matrix sender rendered
-`TadCh[M]: reacted 👍 to …` on the reaction path but `Tad C[M]: hello` on
+`BobS[M]: reacted 👍 to …` on the reaction path but `Bob S[M]: hello` on
 ordinary messages. The reaction prefix now composes through the same
 builder as the message prefix with no whitespace handling, matching the
 MMRelay reference, which calls its shared prefix builder for both paths.
