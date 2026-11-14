@@ -84,12 +84,11 @@ from medre.core.rendering.attribution import (
 )
 from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.rendering.relations import (
-    degrade_relations_inline,
     describe_reaction,
     reaction_key,
     destination_native_message_id,
 )
-from medre.core.rendering.text_helpers import truncate_text_bytes
+from medre.core.rendering.text_helpers import extract_relation_text, truncate_text_bytes
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
@@ -448,7 +447,11 @@ class MeshtasticRenderer:
                 else:
                     if 0 < numeric_id <= 0xFFFFFFFF:
                         reply_id = numeric_id
-        if rel is not None and rel.relation_type == "reaction":
+        if (
+            rel is not None
+            and rel.relation_type == "reaction"
+            and event.event_kind == EventKind.MESSAGE_REACTED
+        ):
             key = reaction_key(rel)
             if self._is_meshtastic_source(event) and reply_id is not None:
                 content.update(text=key, reply_id=reply_id, emoji=1)
@@ -461,7 +464,7 @@ class MeshtasticRenderer:
         elif rel is not None and rel.relation_type == "reply" and reply_id is not None:
             content.update(text=body, reply_id=reply_id)
         else:
-            content["text"] = degrade_relations_inline(event, body)
+            content["text"] = extract_relation_text(event)
 
         prefix_result = self._format_prefix_for(
             event,

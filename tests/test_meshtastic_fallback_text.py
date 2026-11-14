@@ -49,7 +49,13 @@ def _make_event(
 ) -> CanonicalEvent:
     return CanonicalEvent(
         event_id="evt-1",
-        event_kind="message.created",
+        event_kind=(
+            "message.reacted"
+            if relations
+            and len(relations) == 1
+            and relations[0].relation_type == "reaction"
+            else "message.created"
+        ),
         schema_version=1,
         timestamp=datetime.now(timezone.utc),
         source_adapter=source_adapter,
@@ -91,8 +97,8 @@ class TestFallbackTextReaction:
     """Reaction branch of _render_fallback_text."""
 
     @pytest.mark.asyncio
-    async def test_native_reaction_degraded_to_bracket_text(self) -> None:
-        """Native reaction (same adapter) → '[reacted: {emoji}]'.
+    async def test_native_reaction_degraded_to_description(self) -> None:
+        """Reaction without native delivery uses a shared description.
 
         Exercises lines 504-506.
         """
@@ -107,7 +113,7 @@ class TestFallbackTextReaction:
                 delivery_strategy="fallback_text",
             ),
         )
-        assert result.payload["text"] == "[reacted: 👍]"
+        assert result.payload["text"] == "reacted 👍 to an earlier message"
 
     @pytest.mark.asyncio
     async def test_native_reaction_rejects_emoji_from_payload_key(self) -> None:
@@ -289,8 +295,8 @@ class TestResolveReplyTargetMarker:
         result = relation_target_display(rel)
         assert result == "evt-abc"
 
-    def test_returns_none_when_no_ref_and_no_event_id(self) -> None:
-        """target_native_ref is None, target_event_id is None → returns None.
+    def test_returns_unknown_when_no_ref_and_no_event_id(self) -> None:
+        """target_native_ref is None, target_event_id is None → unknown message.
 
         Exercises line 544.
         """
@@ -302,7 +308,7 @@ class TestResolveReplyTargetMarker:
             fallback_text=None,
         )
         result = relation_target_display(rel)
-        assert result is None
+        assert result == "unknown message"
 
     def test_native_ref_without_message_id_falls_through_to_event_id(self) -> None:
         """target_native_ref exists but native_message_id is None → falls to target_event_id.
@@ -333,4 +339,4 @@ class TestResolveReplyTargetMarker:
         )
         result = relation_target_display(rel)
         # getattr(FakeRef(), "native_message_id", None) → None → falls to target_event_id
-        assert result == "evt-fallback"
+        assert result == "evt-fall…"

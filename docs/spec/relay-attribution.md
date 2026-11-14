@@ -61,3 +61,7 @@ It MUST NOT be automatically upgraded or submitted a second time. A subsequent
 reaction MAY use a destination mapping established by that later time. Waiting
 for mappings or upgrading a completed fallback requires a separate durable
 relation-delivery policy; it is not an implicit renderer retry.
+
+Only a reaction-only event (`message.reacted` with one reaction relation) may
+use key-only native tapback rendering. Authored messages with reaction context
+retain their body and describe the reaction inline, without a tapback flag.

@@ -48,7 +48,13 @@ def _make_event(
 ) -> CanonicalEvent:
     return CanonicalEvent(
         event_id=event_id,
-        event_kind="message.created",
+        event_kind=(
+            "message.reacted"
+            if relations
+            and len(relations) == 1
+            and relations[0].relation_type == "reaction"
+            else "message.created"
+        ),
         schema_version=1,
         timestamp=datetime.now(UTC),
         source_adapter="mesh-1",
@@ -68,12 +74,13 @@ def _make_relation(
     key: str | None = None,
     fallback_text: str | None = None,
     adapter_id: str = "mesh-1",
+    channel: str = "0",
 ) -> EventRelation:
     native_ref = None
     if native_message_id is not None:
         native_ref = NativeRef(
             adapter=adapter_id,
-            native_channel_id="0",
+            native_channel_id=channel,
             native_message_id=native_message_id,
         )
     return EventRelation(
@@ -410,12 +417,14 @@ class TestRendererStructuredReply:
         assert "reply_id" not in result.payload
         assert result.payload["text"] == "[replying to: non-mesh msg] my reply"
 
-    async def test_reply_preserves_channel_index(self) -> None:
-        """Reply rendering preserves target channel."""
+    @pytest.mark.parametrize("channel", ["0", "2"])
+    async def test_reply_preserves_channel_index(self, channel: str) -> None:
+        """Only a channel-matched reply binds; routing retains the target channel."""
         renderer = _make_renderer("mesh-1")
         rel = _make_relation(
             relation_type="reply",
             native_message_id="10",
+            channel=channel,
         )
         event = _make_event(
             payload={"body": "reply msg"},
@@ -427,8 +436,12 @@ class TestRendererStructuredReply:
                 target_adapter="mesh-1", delivery_strategy="direct", target_channel="2"
             ),
         )
-        assert "reply_id" not in result.payload
-        assert "[replying to:" in result.payload["text"]
+        if channel == "2":
+            assert result.payload["reply_id"] == 10
+            assert result.payload["text"] == "reply msg"
+        else:
+            assert "reply_id" not in result.payload
+            assert "[replying to:" in result.payload["text"]
         assert result.payload["channel_index"] == 2
 
 
@@ -761,3 +774,49 @@ async def test_native_tapback_preserves_exact_relation_key(key):
         event, RenderingContext("direct", "mesh-1", "0", "meshtastic")
     )
     assert result.payload["text"] == key
+
+
+@pytest.mark.parametrize("strategy", ["direct", "fallback_text"])
+@pytest.mark.parametrize("native_id", ["55", None])
+async def test_single_reaction_on_authored_message_keeps_body(strategy, native_id):
+    from msgspec.structs import replace
+
+    event = replace(
+        _make_event(
+            payload={"body": "Please check this"},
+            relations=(
+                _make_relation("reaction", native_message_id=native_id, key="👍"),
+            ),
+        ),
+        event_kind="message.created",
+    )
+    result = await _make_renderer("mesh-1").render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy=strategy)
+    )
+    assert (
+        result.payload["text"] == "reacted 👍 to an earlier message Please check this"
+    )
+    assert "emoji" not in result.payload
+    assert "reply_id" not in result.payload
+
+
+@pytest.mark.parametrize(
+    "kind,payload,text",
+    [
+        (
+            "presence.changed",
+            {"user": "alice", "status": "online"},
+            "alice is now online",
+        ),
+        ("message.edited", {"body": "updated"}, "[edited] updated"),
+        ("message.deleted", {"body": "ignored"}, "[deleted]"),
+    ],
+)
+async def test_relation_free_event_uses_kind_specific_text(kind, payload, text):
+    from msgspec.structs import replace
+
+    event = replace(_make_event(payload=payload), event_kind=kind)
+    result = await _make_renderer("mesh-1").render(
+        event, RenderingContext(target_adapter="mesh-1", delivery_strategy="direct")
+    )
+    assert result.payload["text"] == text
