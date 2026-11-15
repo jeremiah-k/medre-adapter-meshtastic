@@ -2,7 +2,7 @@
 
 Relayable Meshtastic ingress is bounded **before** scheduling: the SDK
 reader thread takes a non-blocking reservation from a finite per-session
-pool sized by the `max_pending_ingress_callbacks` setting (default ``100``,
+pool sized by the `max_pending_ingress_callbacks` setting (default `100`,
 provisional pending a measured-budget qualification round; finite-only,
 non-positive values are rejected) before staging a packet. A reader thread
 never parks waiting for a slot.
