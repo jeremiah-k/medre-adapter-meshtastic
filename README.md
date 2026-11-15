@@ -73,23 +73,11 @@ providers remain available when another provider fails discovery.
 
 Protocol and SDK contract tests live in this repository with adapter-owned
 helpers. Cross-adapter routing and lifecycle tests remain in MEDRE. Run the
-following from this repository in a fresh virtual environment, with a matching
-MEDRE checkout at any location. Set `MEDRE_CORE` to that checkout path.
-
-```bash
-# SDK-free fake tier: core dev supplies test tooling; skip this adapter's SDK deps.
-python -m pip install -e "${MEDRE_CORE:?Set MEDRE_CORE to the core checkout}[dev]"
-python -m pip install --no-deps -e .
-python -m pytest -q
-
-# Native SDK tier: this distribution supplies its own SDK pins.
-python -m pip install -e '.[test]'
-python -m pytest -v -m "meshtastic_sdk and not local_integration and not soak and not live and not hardware and not docker"
-```
-
-The default pytest selection excludes SDK, service, hardware, local integration,
-and soak tiers. Installing SDKs afterward leaves the same environment SDK-enabled;
-use a fresh environment for a new SDK-free proof.
+tests through the locked uv core environment described in
+[contributing](CONTRIBUTING.md). That workflow supports arbitrary core and
+provider checkouts, including forks, without a separate manually configured
+virtual environment. Select SDK, service, hardware, local integration and soak
+tiers explicitly. Re-run the SDK-free sync before claiming an SDK-free proof.
 
 ## Fake smoke sources
 
@@ -161,8 +149,9 @@ installed metadata while this repository chooses its SDK qualification extras.
 The fake constructor and explicit-keyword event factory are checked in the
 SDK-free tier. Native schemas and validated examples live in `docs/schemas` here.
 
-This repository declares its own Ruff/Black policy. CI checks all Python source
-and tests, plus commit whitespace, alongside the fake/native qualification tiers.
+Python policy is declared in pyproject.toml. Local work and CI use the same
+committed Trunk launcher and pinned tools for all-file checks, alongside the
+fake/native qualification tiers.
 The native adapter package includes its own `py.typed` marker.
 
 ## Outbound pacing
@@ -209,3 +198,8 @@ configuration and missing dependencies still fail startup. The async deadline
 does not forcibly terminate a blocking SDK thread; see the
 [connection lifecycle contract](docs/spec/connection-lifecycle.md) for ownership
 and shutdown limits. Native handoff still requires independent RF qualification.
+
+## Development tooling
+
+See [contributing](CONTRIBUTING.md) for the shared Trunk quality gate and uv-based
+editable development workflow.

@@ -7,11 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.adapters.meshtastic.session import NativeSendAttempt
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.planning.fallback_resolution import FallbackResolver
@@ -24,6 +19,12 @@ from medre_meshtastic_tests.helpers.meshtastic_bridge import (
     make_adapter_context,
     make_text_packet,
 )
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.codec import MeshtasticCodec
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.adapters.meshtastic.session import NativeSendAttempt
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 
 @pytest.mark.parametrize("mapping_ready", [True, False])
@@ -221,9 +222,10 @@ async def test_unresolved_source_packet_id_is_not_reused_on_another_radio(
 @pytest.mark.meshtastic_sdk
 async def test_cross_radio_tapback_encodes_real_sdk_protobuf():
     """The rendered destination ID and emoji flag survive the actual SDK wire builder."""
-    from msgspec.structs import replace
-    from medre.adapters.meshtastic.session import MeshtasticSession
     from medre.core.events import NativeRef
+    from msgspec.structs import replace
+
+    from medre.adapters.meshtastic.session import MeshtasticSession
 
     configs = {
         name: MeshtasticConfig(adapter_id=name, connection_type="fake", relay_prefix="")

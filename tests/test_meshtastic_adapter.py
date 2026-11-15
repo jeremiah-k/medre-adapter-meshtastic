@@ -11,11 +11,6 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.errors import (
-    MeshtasticConnectionError,
-)
-from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterPermanentError,
@@ -27,6 +22,12 @@ from medre_meshtastic_tests.helpers.meshtastic import (
     make_meshtastic_rendering_result,
     make_meshtastic_text_packet,
 )
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.errors import (
+    MeshtasticConnectionError,
+)
+from medre.adapters.meshtastic.session import MeshtasticSession
 
 # ===================================================================
 # Real MeshtasticAdapter tests

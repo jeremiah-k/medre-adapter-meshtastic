@@ -5,14 +5,15 @@ Split from test_meshtastic_adapter_delivery.py to stay under 1500 lines.
 
 from __future__ import annotations
 
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.contracts.adapter import AdapterHandoffResult
 from medre.core.events.bus import EventBus
 from medre_meshtastic_tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_rendering_result,
 )
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
 # ===================================================================
 # Queue lifecycle evidence: handoff disposition: deferred vs transport_handoff
@@ -197,16 +198,17 @@ class TestDeliveryOutcomeQueuedStatus:
     async def test_meshtastic_delivery_outcome_is_queued(self, temp_storage) -> None:
         """Pipeline returns DeliveryOutcome(status='queued') with
         receipt.status='queued' for Meshtastic adapter delivery."""
-        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.planning.fallback_resolution import FallbackResolver
         from medre.core.planning.relation_resolution import RelationResolver
         from medre.core.rendering.renderer import RenderingPipeline
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing import Route, Router, RouteSource, RouteTarget
+
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         fake_in_config = MeshtasticConfig(adapter_id="qo-fake-in")
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
@@ -303,13 +305,6 @@ class TestDeliveryOutcomeQueuedStatus:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
-        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
-
-        # Simple fake adapter that gets TextRenderer (disposition="transport_handoff").
-        from medre.adapters.fakes.transport import FakeTransportAdapter
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
         from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
         from medre.core.events.canonical import CanonicalEvent
@@ -319,6 +314,14 @@ class TestDeliveryOutcomeQueuedStatus:
         from medre.core.rendering.renderer import RenderingPipeline
         from medre.core.rendering.text import TextRenderer
         from medre.core.routing import Route, Router, RouteSource, RouteTarget
+
+        from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+
+        # Simple fake adapter that gets TextRenderer (disposition="transport_handoff").
+        from medre.adapters.fakes.transport import FakeTransportAdapter
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         fake_in = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="acc-fake"))
         mesh_out = MeshtasticAdapter(

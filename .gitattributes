@@ -1,3 +1,4 @@
+* text=auto eol=lf
 # Hashes in the 0.1.0 freeze manifest use exact Git blob bytes.
 # Never translate schema line endings during Windows checkouts.
 docs/schemas/** -text

@@ -11,8 +11,9 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre_meshtastic_tests.helpers.meshtastic import make_meshtastic_config
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
 # -- Helpers ---------------------------------------------------------------
 

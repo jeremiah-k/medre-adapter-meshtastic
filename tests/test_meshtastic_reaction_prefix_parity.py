@@ -20,8 +20,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -30,6 +28,9 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 MATRIX_ADAPTER = "matrix-home"
 MESH_ADAPTER = "mesh-lf"

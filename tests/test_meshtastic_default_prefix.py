@@ -1,10 +1,12 @@
 """Compact default attribution and final wire-byte budgeting."""
 
-from datetime import datetime, timezone
 from dataclasses import replace
+from datetime import datetime, timezone
+
 import pytest
 from medre.core.events import CanonicalEvent, EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
+
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
 

@@ -6,6 +6,7 @@ action classification (relay/ignore/drop/deferred), and metadata preservation.
 from __future__ import annotations
 
 import pytest
+
 from medre.adapters.meshtastic.packet_classifier import (
     MeshtasticPacketClassifier,
     normalize_portnum,

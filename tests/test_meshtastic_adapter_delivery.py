@@ -10,15 +10,16 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from medre_meshtastic_tests.helpers.meshtastic import (
+    make_meshtastic_config,
+    make_meshtastic_rendering_result,
+)
+
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
 from medre.adapters.meshtastic.session import MeshtasticSession
-from medre_meshtastic_tests.helpers.meshtastic import (
-    make_meshtastic_config,
-    make_meshtastic_rendering_result,
-)
 
 # ===================================================================
 # Send semantics audit

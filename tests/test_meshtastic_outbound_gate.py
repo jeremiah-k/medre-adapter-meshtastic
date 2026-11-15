@@ -21,21 +21,22 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
-from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterPermanentError,
     AdapterSendError,
 )
+from medre.core.evidence.failure_taxonomy import derive_failure_kind_detail
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryExecutor,
 )
 from medre.core.rendering.renderer import RenderingResult
-from medre.core.evidence.failure_taxonomy import derive_failure_kind_detail
 from medre_meshtastic_tests.helpers.delivery_callbacks import with_attempt_provenance
+
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.config.adapters.meshtastic import MeshtasticConfig
+from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 
 # ---------------------------------------------------------------------------
 # Helpers

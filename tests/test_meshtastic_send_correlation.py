@@ -13,6 +13,10 @@ import concurrent.futures
 from typing import Any
 
 import pytest
+from medre_meshtastic_tests.helpers.meshtastic import (
+    make_meshtastic_config,
+    make_meshtastic_rendering_result,
+)
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.routing_observations import (
@@ -26,10 +30,6 @@ from medre.adapters.meshtastic.send_correlation import (
     MeshtasticSendCorrelation,
     UncorrelatedRoutingResult,
     _native_id_key,
-)
-from medre_meshtastic_tests.helpers.meshtastic import (
-    make_meshtastic_config,
-    make_meshtastic_rendering_result,
 )
 
 
@@ -487,9 +487,10 @@ class TestAdapterIntegration:
         self, make_adapter_context
     ) -> None:
         """Synchronous planned-packet handoffs belong to core's dispatch."""
+        from medre.core.contracts.delivery import AdapterHandoffResult
+
         from medre.adapters.meshtastic.guarded import GuardedQueuedSend
         from medre.adapters.meshtastic.queue import QueueDeliveryResult
-        from medre.core.contracts.delivery import AdapterHandoffResult
 
         config = make_meshtastic_config(connection_type="fake")
         adapter = MeshtasticAdapter(config)

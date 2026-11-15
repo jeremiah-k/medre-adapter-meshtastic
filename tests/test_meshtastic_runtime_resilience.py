@@ -9,10 +9,11 @@ import types
 from types import SimpleNamespace
 
 import pytest
+from medre_meshtastic_tests.helpers.async_utils import wait_until
+
 from medre.adapters.meshtastic.errors import MeshtasticConnectionError
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre_meshtastic_tests.helpers.async_utils import wait_until
 
 
 def _tcp_config(**overrides: object) -> MeshtasticConfig:

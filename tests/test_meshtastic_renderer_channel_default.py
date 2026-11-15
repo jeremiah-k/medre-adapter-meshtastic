@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata
 from medre.core.rendering.renderer import RenderingContext
+
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 # ---------------------------------------------------------------------------
 # Helpers (mirroring test_meshtastic_renderer style)

@@ -8,9 +8,9 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
-from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = ROOT / "docs" / "schemas"

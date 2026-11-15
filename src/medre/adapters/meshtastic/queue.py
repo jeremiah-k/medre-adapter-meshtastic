@@ -76,12 +76,13 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Literal
 
-from medre.adapters.meshtastic.errors import MeshtasticSendError
-from medre.adapters.meshtastic.guarded import GuardedQueuedSend
-from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
-from medre.adapters.meshtastic.packet_snapshot import json_safe
 from medre.core.contracts.delivery import AdapterHandoffResult
 from medre.core.events.delivery import DeliveryAttemptProvenance
+
+from medre.adapters.meshtastic.errors import MeshtasticSendError
+from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
+from medre.adapters.meshtastic.guarded import GuardedQueuedSend
+from medre.adapters.meshtastic.packet_snapshot import json_safe
 
 _logger = logging.getLogger(__name__)
 

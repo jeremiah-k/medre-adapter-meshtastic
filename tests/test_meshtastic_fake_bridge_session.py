@@ -12,11 +12,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.adapters.meshtastic.session import MeshtasticSession
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.engine.pipeline import PipelineConfig, PipelineRunner
 from medre.core.events.bus import EventBus
 from medre.core.planning.fallback_resolution import FallbackResolver
@@ -30,6 +25,12 @@ from medre_meshtastic_tests.helpers.meshtastic_bridge import (
     make_adapter_context,
     make_text_packet,
 )
+
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 # ===================================================================
 # 4. Session callback bridge

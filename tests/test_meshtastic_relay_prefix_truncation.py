@@ -9,10 +9,11 @@ displays are the constrained-display affordance that motivates truncation.
 from datetime import datetime, timezone
 
 import pytest
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import CanonicalEvent, EventMetadata, NativeMetadata
 from medre.core.rendering.renderer import RenderingContext
+
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 
 def message(sender="!9f098838", text="Testing from Matrix"):

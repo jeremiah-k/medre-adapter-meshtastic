@@ -32,11 +32,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from medre.adapters.meshtastic.codec import MeshtasticCodec
-from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
-from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
-from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterCapabilities,
     AdapterContext,
@@ -54,6 +49,12 @@ from medre.core.policies.startup_backlog_suppress import (
     should_suppress_startup_backlog,
 )
 from medre.core.rendering.renderer import RenderingResult
+
+from medre.adapters.meshtastic.codec import MeshtasticCodec
+from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
+from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
+from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _logger = logging.getLogger(__name__)
 

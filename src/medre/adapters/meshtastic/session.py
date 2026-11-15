@@ -18,9 +18,8 @@ import math
 import random
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from collections.abc import Awaitable
 from typing import Any, cast
 
 from medre.adapters.meshtastic.compat import HAS_MESHTASTIC

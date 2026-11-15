@@ -1,11 +1,12 @@
 """The adapter-owned sample must exercise two offline instances independently."""
 
-from medre import adapter_registry
 from medre.adapter_registry import AdapterTypeRegistry
-from medre.adapters.meshtastic.plugin import adapter_spec
 from medre.config._yaml import parse_yaml_config
 from medre.config.sample import generate_sample_config
 from medre.runtime.smoke import run_fake_bridge_smoke
+
+from medre import adapter_registry
+from medre.adapters.meshtastic.plugin import adapter_spec
 
 
 async def test_sample_routes_between_distinct_offline_instances(tmp_path, monkeypatch):

@@ -5,6 +5,7 @@ chaining, and edge cases.
 from __future__ import annotations
 
 import pytest
+
 from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.adapters.meshtastic_errors import MeshtasticConfigError
 

@@ -31,10 +31,6 @@ import logging
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.contracts.adapter import (
     AdapterContext,
 )
@@ -52,6 +48,11 @@ from medre_meshtastic_tests.helpers.meshtastic_bridge import (
     make_adapter_context,
     make_text_packet,
 )
+
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 # ===================================================================
 # 1. Meshtastic inbound -> fake outbound

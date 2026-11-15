@@ -13,13 +13,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.errors import MeshtasticSendError
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.adapters.meshtastic.session import MeshtasticSession
-from medre.config.adapters.meshtastic import MeshtasticConfig, MeshtasticConfigError
 from medre.core.contracts.adapter import AdapterPermanentError
 from medre.core.engine.pipeline.radio_delivery import deliver_radio_plan
 from medre.core.events import CanonicalEvent, DeliveryAttemptProvenance, EventMetadata
@@ -28,6 +21,13 @@ from medre_meshtastic_tests.helpers.storage_outbox import (
     create_outbox_item_with_parent,
     make_outbox_item,
 )
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.errors import MeshtasticSendError
+from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.config.adapters.meshtastic import MeshtasticConfig, MeshtasticConfigError
 
 
 def config(**changes):

@@ -13,8 +13,8 @@ import pytest
 
 from medre.adapters.meshtastic.routing_observations import (
     REJECT_MALFORMED,
-    REJECT_NOT_ROUTING,
     REJECT_NO_ERROR_REASON,
+    REJECT_NOT_ROUTING,
     REJECT_REQUEST_ID_INVALID,
     REJECT_REQUEST_ID_ZERO,
     NativeRoutingResult,

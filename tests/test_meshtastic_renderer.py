@@ -11,8 +11,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -20,6 +18,9 @@ from medre.core.events import (
     NativeRef,
 )
 from medre.core.rendering.renderer import RenderingContext, RenderingResult
+
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 # ---------------------------------------------------------------------------
 # Helpers

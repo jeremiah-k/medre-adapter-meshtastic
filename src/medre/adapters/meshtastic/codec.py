@@ -15,6 +15,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from medre.core.contracts.adapter import AdapterCodec
+from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
+from medre.core.events.kinds import EventKind
+from medre.core.events.metadata import EventMetadata, NativeMetadata
+
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
 from medre.adapters.meshtastic.event_shape import build_meshtastic_native_metadata
 from medre.adapters.meshtastic.packet_classifier import (
@@ -22,10 +27,6 @@ from medre.adapters.meshtastic.packet_classifier import (
     public_portnum,
 )
 from medre.adapters.meshtastic.packet_snapshot import snapshot_decoded, snapshot_packet
-from medre.core.contracts.adapter import AdapterCodec
-from medre.core.events.canonical import CanonicalEvent, EventRelation, NativeRef
-from medre.core.events.kinds import EventKind
-from medre.core.events.metadata import EventMetadata, NativeMetadata
 
 
 class MeshtasticCodec(AdapterCodec):

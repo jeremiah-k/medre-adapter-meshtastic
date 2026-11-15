@@ -5,8 +5,9 @@ import json
 from pathlib import Path
 
 import jsonschema
-from medre.adapters.meshtastic.plugin import adapter_spec
 from medre.testing.fakes import assert_fake_contract
+
+from medre.adapters.meshtastic.plugin import adapter_spec
 
 
 def test_fake_conforms_to_explicit_core_calls():

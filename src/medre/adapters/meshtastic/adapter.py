@@ -96,11 +96,33 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from medre.core.events.canonical import CanonicalEvent
 
+from medre.core.contracts.adapter import (
+    AdapterCapabilities,
+    AdapterContext,
+    AdapterContract,
+    AdapterInfo,
+    AdapterPermanentError,
+    AdapterRole,
+    AdapterSendError,
+)
+from medre.core.contracts.delivery import (
+    AdapterHandoffResult,
+    DeferredHandoffCompleted,
+    DeferredHandoffFailed,
+)
+from medre.core.events.delivery import DeliveryAttemptProvenance
+from medre.core.policies.startup_backlog_suppress import (
+    should_suppress_startup_backlog,
+)
+from medre.core.rendering.renderer import RenderingResult
+from medre.core.supervision.diagnostic_contract import QUEUE_PENDING
+
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import (
     MeshtasticSendError,
 )
 from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
+from medre.adapters.meshtastic.guarded import GuardedQueuedSend
 from medre.adapters.meshtastic.packet_classifier import (
     REASON_DETECTION_SENSOR,
     REASON_DIRECT_MESSAGE,
@@ -127,27 +149,6 @@ from medre.adapters.meshtastic.send_correlation import (
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import (
-    AdapterCapabilities,
-    AdapterContext,
-    AdapterContract,
-    AdapterInfo,
-    AdapterPermanentError,
-    AdapterRole,
-    AdapterSendError,
-)
-from medre.adapters.meshtastic.guarded import GuardedQueuedSend
-from medre.core.contracts.delivery import (
-    AdapterHandoffResult,
-    DeferredHandoffCompleted,
-    DeferredHandoffFailed,
-)
-from medre.core.events.delivery import DeliveryAttemptProvenance
-from medre.core.policies.startup_backlog_suppress import (
-    should_suppress_startup_backlog,
-)
-from medre.core.rendering.renderer import RenderingResult
-from medre.core.supervision.diagnostic_contract import QUEUE_PENDING
 
 try:
     from medre.core.contracts.adapter import ProducerPressureReport

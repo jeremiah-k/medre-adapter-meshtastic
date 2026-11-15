@@ -6,10 +6,11 @@ import inspect
 from importlib import import_module
 
 import pytest
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre_meshtastic_tests.helpers.sdk_contract import (
     assert_installed_extra_matches_declared_pins,
 )
+
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 pytestmark = pytest.mark.meshtastic_sdk
 

@@ -15,13 +15,14 @@ Verifies:
 from __future__ import annotations
 
 import pytest
-from medre.adapters.meshtastic.errors import MeshtasticSendError
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.planning.delivery_plan import (
     DeliveryFailureKind,
     RetryExecutor,
 )
 from medre_meshtastic_tests.helpers.delivery_callbacks import with_attempt_provenance
+
+from medre.adapters.meshtastic.errors import MeshtasticSendError
+from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
 
 class TestQueueMaxQueueSizeValidation:
@@ -118,10 +119,11 @@ class TestAdapterDeliverOnFullQueue:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext, AdapterSendError
         from medre.core.rendering.renderer import RenderingResult
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(
             adapter_id="test-full",
@@ -269,9 +271,10 @@ class TestAdapterDiagnosticsQueueStats:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import AdapterContext
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import AdapterContext
 
         config = MeshtasticConfig(adapter_id="diag-test", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -327,9 +330,10 @@ class TestAdapterDiagnosticsClassifierCounters:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import AdapterContext
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import AdapterContext
 
         config = MeshtasticConfig(adapter_id="cls-test", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -372,9 +376,10 @@ class TestAdapterDiagnosticsClassifierCounters:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import AdapterContext
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import AdapterContext
 
         config = MeshtasticConfig(adapter_id="cls-zero", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -403,9 +408,10 @@ class TestAdapterDiagnosticsClassifierCounters:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import AdapterContext
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import AdapterContext
 
         config = MeshtasticConfig(adapter_id="rej-test", connection_type="fake")
         adapter = MeshtasticAdapter(config)

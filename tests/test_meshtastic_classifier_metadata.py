@@ -6,8 +6,9 @@ self-echo suppression.
 
 from __future__ import annotations
 
-import medre.adapters.meshtastic.packet_classifier as _classifier_mod
 import pytest
+
+import medre.adapters.meshtastic.packet_classifier as _classifier_mod
 from medre.adapters.meshtastic.packet_classifier import (
     REASON_SELF_ECHO,
     MeshtasticPacketClassifier,

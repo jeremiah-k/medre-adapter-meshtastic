@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+
 from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import (
     MeshtasticOutboundQueue,
@@ -493,9 +494,10 @@ class TestAdapterDiagnosticsFields:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import AdapterContext
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import AdapterContext
 
         config = MeshtasticConfig(
             adapter_id="diag-retry",
@@ -530,9 +532,10 @@ class TestAdapterDiagnosticsFields:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import AdapterContext
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import AdapterContext
 
         config = MeshtasticConfig(
             adapter_id="diag-active",
@@ -643,9 +646,10 @@ class TestDiagnosticsNoMessageBodyOrSecrets:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import AdapterContext
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import AdapterContext
 
         config = MeshtasticConfig(adapter_id="diag-safe", connection_type="fake")
         adapter = MeshtasticAdapter(config)

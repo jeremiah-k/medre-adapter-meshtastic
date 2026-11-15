@@ -8,8 +8,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.core.contracts.adapter import (
     AdapterHandoffResult,
     AdapterPermanentError,
@@ -24,6 +22,9 @@ from medre_meshtastic_tests.helpers.meshtastic import (
     make_meshtastic_rendering_result,
     make_meshtastic_text_packet,
 )
+
+from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
 # ===================================================================
 # Capabilities

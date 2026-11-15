@@ -37,7 +37,7 @@ flow control, and an unbounded pending-future set was the measured result.
 ## Bounded staging
 
 Relayable ingress is bounded **before** scheduling. A finite per-session
-reservation pool sized by `max_pending_ingress_callbacks` (default ``100``)
+reservation pool sized by `max_pending_ingress_callbacks` (default `100`)
 holds one slot per staged packet, and the reader thread stages a packet only
 when a slot is free. Capacity is checked after relay/backlog classification but
 before node enrichment and codec decoding:
@@ -66,7 +66,7 @@ before node enrichment and codec decoding:
 - Contexts without the optional sink (older core, direct tests) behave
   identically minus the reports.
 
-The default of ``100`` is **provisional**, aligned with the core admission
+The default of `100` is **provisional**, aligned with the core admission
 default. The measured qualification record below justifies the bound's
 loss-honest behavior, not a throughput budget; the default is not a
 throughput guarantee. The value is finite-only: non-positive values are
@@ -77,16 +77,16 @@ The outbound paced queue's capacity is a separate contract.
 ## Above-cap qualification (measured record)
 
 Recorded 2026-11-04 on the synthetic SDK callback tier
-(``connection_type="fake"``, default cap ``100``, no radio, network, or SDK
+(`connection_type="fake"`, default cap `100`, no radio, network, or SDK
 install; all numbers content-free). The sustained-ingress suite runs in about
-1.5 seconds, and ``MEDRE_PRESSURE_REPORT_DIR`` exports one content-free JSON
+1.5 seconds, and `MEDRE_PRESSURE_REPORT_DIR` exports one content-free JSON
 record per run.
 
 - Above-cap bursts at 1x, 4x, and 16x of the cap (100, 400, and 1600
   relayable packets with publication held): exactly 100 futures staged,
   exactly N−100 refused, and the accounting reconciled exactly — the
-  ``producer_overflow`` counter equals N−100, overflow reports sum to N−100
-  with reason ``callback_capacity``, and scheduled reports sum to 100.
+  `producer_overflow` counter equals N−100, overflow reports sum to N−100
+  with reason `callback_capacity`, and scheduled reports sum to 100.
   Nothing was published for a refused packet. The staged 100 delivered in
   full and the future set drained to zero on release. A repeated burst in
   the same session reused full capacity: no slot leaks across cycles.
@@ -102,17 +102,17 @@ record per run.
   pre-start (zero here — every held publisher had started, and running
   cancellation stays ambiguous per the spec). A wedged-loop variant in
   which all 100 staged submissions were deterministically queued-unstarted
-  produced exactly one coalesced ``cancelled_before_admission`` report with
+  produced exactly one coalesced `cancelled_before_admission` report with
   count 100, and a full stop afterwards double-counted nothing. The
   restarted session staged an above-cap burst under the identical contract
   from full capacity.
-- Memory and reader-thread acquire latency (``tracemalloc`` peak of the held
+- Memory and reader-thread acquire latency (`tracemalloc` peak of the held
   saturated state): the 100-burst peaked at ~0.94 MB, the 1600-burst at
   ~1.11 MB — about 1.2x growth for a 16x burst, asserted sublinear in CI
   (pending work tracks the cap, not the burst). The maximum observed
-  reader ``acquire`` latency was 0.016–0.031 ms across runs against a
+  reader `acquire` latency was 0.016–0.031 ms across runs against a
   100 ms bound: the acquire never parks, and this is not a throughput SLA.
-  ``ru_maxrss`` is recorded in the run JSON as context only and is never
+  `ru_maxrss` is recorded in the run JSON as context only and is never
   asserted.
 
 What this record proves: bounded staging under a 16x over-cap burst,
@@ -120,8 +120,8 @@ loss-honest accounting at every boundary, leak-free capacity reuse within a
 session and across restart, and a reader thread that never parks. What it
 does NOT establish: any throughput or delivery-latency guarantee, and no
 claim about the real SDK, hardware, or radio paths — those stay in their
-named gated tiers (``local_integration``, ``meshtastic_sdk``, ``live``,
-``hardware``, ``soak``).
+named gated tiers (`local_integration`, `meshtastic_sdk`, `live`,
+`hardware`, `soak`).
 
 Delayed reader callbacks cannot rewind the reservation generation, and each
 callback captures the pool belonging to its session snapshot. Missing optional
