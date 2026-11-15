@@ -5,7 +5,6 @@ import threading
 from types import SimpleNamespace
 
 import pytest
-
 from medre_meshtastic_tests.helpers.async_utils import wait_until
 
 from medre.adapters.meshtastic.session import MeshtasticSession

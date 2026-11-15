@@ -3,8 +3,9 @@
 from dataclasses import dataclass
 from typing import Any, Self
 
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.config.model import GenericAdapterRuntimeConfig
+
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 
 @dataclass(frozen=True)

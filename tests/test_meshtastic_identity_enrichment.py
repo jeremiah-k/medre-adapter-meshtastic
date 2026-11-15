@@ -31,14 +31,15 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+from medre.core.events import CanonicalEvent, EventMetadata, NativeMetadata
+from medre.core.rendering.renderer import RenderingContext
+from medre_meshtastic_tests.helpers.native_metadata import meshtastic_native_data
+
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.attribution import project_meshtastic_attribution
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.events import CanonicalEvent, EventMetadata, NativeMetadata
-from medre.core.rendering.renderer import RenderingContext
-from medre_meshtastic_tests.helpers.native_metadata import meshtastic_native_data
 
 # ---------------------------------------------------------------------------
 # Inline helpers

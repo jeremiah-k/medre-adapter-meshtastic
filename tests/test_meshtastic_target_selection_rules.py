@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from medre.adapters.meshtastic.renderer import MeshtasticRenderer
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import (
     CanonicalEvent,
     EventMetadata,
@@ -25,6 +23,9 @@ from medre.core.events import (
 )
 from medre.core.planning.delivery_plan import DeliveryStrategyMethod
 from medre.core.rendering.renderer import RenderingContext
+
+from medre.adapters.meshtastic.renderer import MeshtasticRenderer
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 # ---------------------------------------------------------------------------
 # Helpers

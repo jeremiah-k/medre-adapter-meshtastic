@@ -106,9 +106,6 @@ _MAX_TEXT_BYTES: int = 227
 
 
 def _build_runtime(db_path: Path, *, with_route: bool):
-    from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter  # noqa: F401
-    from medre.config.adapters.meshtastic import MeshtasticConfig
-    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
     from medre.config.model import (
         AdapterConfigSet,
         LoggingConfig,
@@ -119,6 +116,10 @@ def _build_runtime(db_path: Path, *, with_route: bool):
     from medre.config.paths import MedrePaths
     from medre.config.routes import RouteConfig, RouteConfigSet
     from medre.runtime.builder import RuntimeBuilder
+
+    from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter  # noqa: F401
+    from medre.config.adapters.meshtastic import MeshtasticConfig
+    from medre.config.adapters.meshtastic_runtime import MeshtasticRuntimeConfig
 
     src = MeshtasticRuntimeConfig(
         adapter_id="lab_src",

@@ -5,10 +5,10 @@ import logging
 import sys
 
 import pytest
+from medre.core.observability.logging import setup_logging
 
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.observability.logging import setup_logging
 
 
 def test_default_outage_backoff_reaches_five_minutes(monkeypatch):

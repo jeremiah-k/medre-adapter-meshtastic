@@ -6,9 +6,10 @@ and raw text packet dicts used across meshtastic test modules.
 
 from __future__ import annotations
 
-from medre.config.adapters.meshtastic import MeshtasticConfig
 from medre.core.events import DeliveryAttemptProvenance
 from medre.core.rendering.renderer import RenderingResult
+
+from medre.config.adapters.meshtastic import MeshtasticConfig
 
 
 def make_meshtastic_config(**overrides) -> MeshtasticConfig:

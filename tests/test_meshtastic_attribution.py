@@ -7,8 +7,9 @@ into generic attribution fields without touching core extractors.
 
 from __future__ import annotations
 
-from medre.adapters.meshtastic.attribution import project_meshtastic_attribution
 from medre_meshtastic_tests.helpers.native_metadata import meshtastic_native_data
+
+from medre.adapters.meshtastic.attribution import project_meshtastic_attribution
 
 
 def _project(

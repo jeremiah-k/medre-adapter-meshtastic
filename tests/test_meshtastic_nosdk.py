@@ -591,8 +591,9 @@ class TestMeshtasticDeliverLifecycle:
 
     async def test_deliver_before_context_fails_closed_in_fake_mode(self):
         """Deferred fake-mode delivery still requires an installed feedback sink."""
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.core.contracts.adapter import AdapterPermanentError
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
         config = _make_fake_config()
         adapter = MeshtasticAdapter(config)

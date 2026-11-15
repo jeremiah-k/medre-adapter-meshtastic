@@ -14,7 +14,6 @@ _finalize_deferred_handoff code paths, not the queue evidence counters
 from __future__ import annotations
 
 import pytest
-from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.core.contracts.delivery import DeferredHandoffCompleted
 from medre.core.rendering.renderer import RenderingResult
 from medre_meshtastic_tests.helpers.delivery_callbacks import (
@@ -25,6 +24,8 @@ from medre_meshtastic_tests.helpers.storage_outbox import (
     append_receipt_with_parent,
     create_outbox_item_with_parent,
 )
+
+from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 
 # ===================================================================
 # Supplemental receipt correlation (queued → sent by channel)
@@ -498,12 +499,13 @@ class TestDeliveryPlanIdQueuePropagation:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import AdapterContext
         from medre_meshtastic_tests.helpers.delivery_callbacks import (
             make_attempt_provenance,
         )
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(
             adapter_id="test-dpid",
@@ -557,13 +559,14 @@ class TestDeliveryPlanIdQueuePropagation:
         from datetime import datetime, timezone
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.queue import QueueDeliveryResult
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
             AdapterHandoffResult,
         )
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(
             adapter_id="test-rec",
@@ -641,13 +644,14 @@ class TestMetadataKeySplitting:
         from types import MappingProxyType
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.queue import QueueDeliveryResult
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
             AdapterHandoffResult,
         )
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test-meta1", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -707,13 +711,14 @@ class TestMetadataKeySplitting:
         from types import MappingProxyType
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.queue import QueueDeliveryResult
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
             AdapterHandoffResult,
         )
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test-meta2", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -771,13 +776,14 @@ class TestMetadataKeySplitting:
         from types import MappingProxyType
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.queue import QueueDeliveryResult
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
             AdapterHandoffResult,
         )
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test-meta3", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -837,16 +843,17 @@ class TestMetadataKeySplitting:
         from types import MappingProxyType
         from unittest.mock import AsyncMock
 
+        from medre.core.contracts.adapter import (
+            AdapterContext,
+            AdapterHandoffResult,
+        )
+
         from medre.adapters.meshtastic.adapter import MeshtasticAdapter
         from medre.adapters.meshtastic.event_shape import (
             MESHTASTIC_NATIVE_SCHEMA_VERSION,
         )
         from medre.adapters.meshtastic.queue import QueueDeliveryResult
         from medre.config.adapters.meshtastic import MeshtasticConfig
-        from medre.core.contracts.adapter import (
-            AdapterContext,
-            AdapterHandoffResult,
-        )
 
         config = MeshtasticConfig(adapter_id="test-meta4", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -925,13 +932,14 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
         from types import MappingProxyType
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.queue import QueueDeliveryResult
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
             AdapterHandoffResult,
         )
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test-ns-facts", connection_type="fake")
         adapter = MeshtasticAdapter(config)
@@ -1025,13 +1033,14 @@ class TestDelayedOutboundRefMeshtasticNamespaceFacts:
         from types import MappingProxyType
         from unittest.mock import AsyncMock
 
-        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-        from medre.adapters.meshtastic.queue import QueueDeliveryResult
-        from medre.config.adapters.meshtastic import MeshtasticConfig
         from medre.core.contracts.adapter import (
             AdapterContext,
             AdapterHandoffResult,
         )
+
+        from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+        from medre.adapters.meshtastic.queue import QueueDeliveryResult
+        from medre.config.adapters.meshtastic import MeshtasticConfig
 
         config = MeshtasticConfig(adapter_id="test-ns-plain", connection_type="fake")
         adapter = MeshtasticAdapter(config)

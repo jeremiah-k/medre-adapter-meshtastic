@@ -16,6 +16,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from medre.adapters.meshtastic.errors import MeshtasticConnectionError
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig

@@ -79,21 +79,21 @@ from medre.core.rendering.attribution import (
     TRUNCATABLE_RELAY_LABELS,
     PrefixFormatterResult,
     RelayAttribution,
-    resolve_relay_attribution,
     format_checked_relay_prefix,
+    resolve_relay_attribution,
 )
 from medre.core.rendering.radio_text import plan_radio_text
 from medre.core.rendering.relations import (
     compose_relation_text,
     describe_reaction,
-    reaction_key,
     destination_native_message_id,
+    reaction_key,
 )
-from medre.core.rendering.text_helpers import extract_event_text, truncate_text_bytes
 from medre.core.rendering.renderer import (
     RenderingContext,
     RenderingResult,
 )
+from medre.core.rendering.text_helpers import extract_event_text, truncate_text_bytes
 
 if TYPE_CHECKING:
     from medre.config.adapters.meshtastic import MeshtasticConfig

@@ -1,10 +1,11 @@
 """Source-native portnum facts retain protocol meaning outside this adapter."""
 
 import pytest
+from medre.core.rendering.bridge_context import build_bridge_context
+
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.packet_classifier import public_portnum
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.rendering.bridge_context import build_bridge_context
 
 
 @pytest.mark.parametrize(
@@ -95,8 +96,7 @@ def test_detection_sensor_source_facts_require_explicit_text_promotion(
     "wire_value", [37, "MESH_BEACON_APP", "mesh_beacon", "mesh_beacon_app"]
 )
 def test_sdk_declared_portnum_names_keep_the_protocol_number(monkeypatch, wire_value):
-    from medre.adapters.meshtastic import packet_classifier
-    from medre.adapters.meshtastic import compat
+    from medre.adapters.meshtastic import compat, packet_classifier
 
     # SDK table resolution is lazy, and the fallback table is intentionally narrow.
     monkeypatch.setattr(packet_classifier, "_SDK_PORTNUM_FETCHED", False)

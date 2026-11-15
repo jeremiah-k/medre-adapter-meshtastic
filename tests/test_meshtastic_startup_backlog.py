@@ -15,13 +15,14 @@ import time
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.core.contracts.adapter import AdapterContext
 from medre_meshtastic_tests.helpers.async_utils import wait_until
 from medre_meshtastic_tests.helpers.meshtastic import (
     make_meshtastic_config,
     make_meshtastic_text_packet,
 )
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 
 # ---------------------------------------------------------------------------
 # Helpers

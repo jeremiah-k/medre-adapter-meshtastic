@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
 
 # ---------------------------------------------------------------------------

@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.queue import QueueDeliveryResult
 from medre.core.contracts.adapter import (
     AdapterHandoffResult,
 )
 from medre_meshtastic_tests.helpers.delivery_callbacks import make_attempt_provenance
 from medre_meshtastic_tests.helpers.meshtastic import make_meshtastic_config
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.queue import QueueDeliveryResult
 
 # ===================================================================
 # stop() session delegation

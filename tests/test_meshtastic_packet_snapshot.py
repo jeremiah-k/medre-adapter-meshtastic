@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import msgspec
+
 from medre.adapters.meshtastic.packet_snapshot import (
     json_safe,
     snapshot_decoded,

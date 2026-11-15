@@ -9,8 +9,6 @@ from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Any
 
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.queue import QueueDeliveryResult
 from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterHandoffResult,
@@ -19,6 +17,9 @@ from medre.core.contracts.delivery import DeferredHandoffCompleted
 from medre.core.events.canonical import CanonicalEvent
 from medre_meshtastic_tests.helpers.delivery_callbacks import make_attempt_provenance
 from medre_meshtastic_tests.helpers.meshtastic import make_meshtastic_config
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.queue import QueueDeliveryResult
 
 
 def _context(

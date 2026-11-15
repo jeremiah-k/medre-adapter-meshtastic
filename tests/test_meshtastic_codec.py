@@ -7,11 +7,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from medre.core.events.canonical import CanonicalEvent
+from medre.core.events.kinds import EventKind
+
 from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.errors import MeshtasticCodecError
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.events.canonical import CanonicalEvent
-from medre.core.events.kinds import EventKind
 
 
 def _meshtastic_data(event: CanonicalEvent) -> dict[str, object]:

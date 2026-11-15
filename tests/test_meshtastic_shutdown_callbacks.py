@@ -20,11 +20,6 @@ from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import AsyncMock
 
-from medre.adapters.meshtastic.adapter import MeshtasticAdapter
-from medre.adapters.meshtastic.queue import (
-    QueueDeliveryResult,
-    QueueTerminalResult,
-)
 from medre.core.contracts.adapter import (
     AdapterContext,
     AdapterHandoffResult,
@@ -34,6 +29,12 @@ from medre_meshtastic_tests.helpers.delivery_callbacks import (
     make_attempt_provenance,
 )
 from medre_meshtastic_tests.helpers.meshtastic import make_meshtastic_config
+
+from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.queue import (
+    QueueDeliveryResult,
+    QueueTerminalResult,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers

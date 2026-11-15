@@ -14,13 +14,14 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from medre.core.contracts.adapter import AdapterContext
+from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
+from medre.core.rendering.renderer import RenderingContext
+
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import AdapterContext
-from medre.core.events import CanonicalEvent, EventMetadata, EventRelation, NativeRef
-from medre.core.rendering.renderer import RenderingContext
 
 
 def _config(**overrides: Any) -> MeshtasticConfig:

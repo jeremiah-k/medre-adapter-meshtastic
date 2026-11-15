@@ -29,10 +29,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from medre.core.contracts.adapter import AdapterContext
 
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import AdapterContext
 
 try:
     from medre.core.contracts.adapter import ProducerPressureReport

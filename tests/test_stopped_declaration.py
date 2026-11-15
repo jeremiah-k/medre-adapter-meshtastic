@@ -9,10 +9,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from medre.maintenance.stopped_declare import declaration_from_spec
 
 from medre.adapters.meshtastic.plugin import adapter_spec
 from medre.adapters.meshtastic.stopped_declaration import declaration
-from medre.maintenance.stopped_declare import declaration_from_spec
 
 
 def test_spec_references_the_declaration_module():

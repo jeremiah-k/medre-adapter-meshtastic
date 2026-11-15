@@ -21,6 +21,12 @@ import sys
 from datetime import datetime, timezone
 
 import pytest
+from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
+from medre.core.events import CanonicalEvent, EventMetadata
+from medre.core.rendering.renderer import RenderingContext, RenderingResult
+from medre_meshtastic_tests.helpers.async_utils import wait_until
+from medre_meshtastic_tests.helpers.delivery_callbacks import with_attempt_provenance
+
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.codec import MeshtasticCodec
@@ -28,11 +34,6 @@ from medre.adapters.meshtastic.errors import MeshtasticSendError
 from medre.adapters.meshtastic.queue import MeshtasticOutboundQueue
 from medre.adapters.meshtastic.renderer import MeshtasticRenderer
 from medre.config.adapters.meshtastic import MeshtasticConfig
-from medre.core.contracts.adapter import AdapterPermanentError, AdapterSendError
-from medre.core.events import CanonicalEvent, EventMetadata
-from medre.core.rendering.renderer import RenderingContext, RenderingResult
-from medre_meshtastic_tests.helpers.async_utils import wait_until
-from medre_meshtastic_tests.helpers.delivery_callbacks import with_attempt_provenance
 
 
 def _read_module_source(module) -> str:
