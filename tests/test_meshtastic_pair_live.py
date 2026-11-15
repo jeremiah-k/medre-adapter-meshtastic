@@ -45,12 +45,15 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
 import uuid
 from pathlib import Path
 
 import pytest
 from medre_meshtastic_tests.helpers.live_harness import bounded
+from medre_meshtastic_tests.helpers.live_peer_common import (
+    async_packets_until,
+    async_peer_context,
+)
 from medre_meshtastic_tests.helpers.meshtastic import make_meshtastic_text_packet
 from medre_meshtastic_tests.helpers.meshtastic_live_peer import (
     MeshtasticPeerListener as _PeerListener,
@@ -58,6 +61,11 @@ from medre_meshtastic_tests.helpers.meshtastic_live_peer import (
 from medre_meshtastic_tests.helpers.meshtastic_live_peer import (
     run_meshtastic_peer as _peer,
 )
+from medre_meshtastic_tests.helpers.pair_ingress import (
+    assert_admitted_batch,
+    submitted_batch,
+)
+from medre_meshtastic_tests.helpers.pair_receipts import await_sent_receipt
 
 # ---------------------------------------------------------------------------
 # Environment gate
@@ -165,27 +173,15 @@ def _build_runtime(db_path: Path, *, with_route: bool):
     return RuntimeBuilder(config, paths).build()
 
 
-async def _start_app(app) -> None:
-    await bounded(app.start(), 30.0, "pair runtime app.start()")
+async def _start_app(app, scope=None) -> None:
+    if scope is None:
+        await bounded(app.start(), 30.0, "pair runtime app.start()")
+    else:
+        await bounded(app.start(scope=scope), 30.0, "pair runtime app.start(REPLAY)")
 
 
 async def _stop_app(app) -> None:
     await bounded(app.stop(), 30.0, "pair runtime app.stop()")
-
-
-async def _await_receipts(storage, event_id: str) -> list:
-    """Poll durable delivery receipts for one event, bounded."""
-
-    async def _poll() -> list:
-        deadline = time.monotonic() + _RECEIPT_TIMEOUT
-        while time.monotonic() < deadline:
-            receipts = await storage.list_receipts_for_event(event_id)
-            if receipts:
-                return receipts
-            await asyncio.sleep(1.0)
-        return []
-
-    return await _poll()
 
 
 def _nonce(prefix: str) -> str:
@@ -216,12 +212,18 @@ class TestMeshtasticPairEgress:
             packet = make_meshtastic_text_packet(
                 text=nonce, sender="!peer0001", channel=0
             )
-            with _PeerListener(_RECEIPT_TIMEOUT + 20) as peer:
+            async with async_peer_context(_PeerListener(_RECEIPT_TIMEOUT + 20)) as peer:
                 await fake.simulate_inbound(packet)
                 event = fake.inbound_events[-1]
-                receipts = await _await_receipts(app.storage, event.event_id)
-                assert receipts, "no durable delivery receipt appeared"
-                peer_out = peer.packets_until(
+                latest = await await_sent_receipt(
+                    app.storage,
+                    event.event_id,
+                    target_adapter="mt_radio",
+                    route_id="lab_egress",
+                    timeout=_RECEIPT_TIMEOUT,
+                )
+                peer_out = await async_packets_until(
+                    peer.packets_until,
                     lambda packets: any(
                         nonce in (packet.get("text") or "") for packet in packets
                     ),
@@ -237,10 +239,9 @@ class TestMeshtasticPairEgress:
             # Layer B: native packet id recorded in the durable receipt.
             # Meshtastic egress tops out at "sent" (SDK acceptance) — RF
             # receipt is layer C, observed by the independent peer above.
-            latest = max(receipts, key=lambda r: r.sequence)
             assert (
                 latest.status == "sent"
-            ), f"receipt status {latest.status!r}, error={latest.error!r}"
+            ), f"receipt status {latest.status!r}, failure={latest.failure_kind!r}"
             assert (
                 latest.adapter_message_id
             ), "receipt carries no native/adapter message id"
@@ -271,7 +272,7 @@ class TestMeshtasticPairEgress:
             long_source_event = None
             pid = 900_000
             window = len(cases) * (_TX_PACING_SECONDS + 0.6) + _BOUNDARY_RECEIPT_TIMEOUT
-            with _PeerListener(window) as peer:
+            async with async_peer_context(_PeerListener(window)) as peer:
                 for text in cases:
                     pid += 1  # unique native packet id per message (dedup)
                     packet = make_meshtastic_text_packet(
@@ -285,7 +286,8 @@ class TestMeshtasticPairEgress:
                     # Pace ingress so outbound queue + airtime stay stable.
                     await asyncio.sleep(_TX_PACING_SECONDS + 0.6)
                 expected_keys = ("N4-uni", "N4-nl", "N4-long", "N4-ok")
-                received = peer.packets_until(
+                received = await async_packets_until(
+                    peer.packets_until,
                     lambda packets: all(
                         any(key in (packet.get("text") or "") for packet in packets)
                         for key in expected_keys
@@ -351,8 +353,10 @@ class TestMeshtasticPairIngress:
         must both be admitted (no false dedup).  Unicode and newline
         payloads must be preserved exactly in canonical content.
         """
+        from medre.runtime.app import StartupScope
+
         app = _build_runtime(tmp_path / "lab.db", with_route=False)
-        await _start_app(app)
+        await _start_app(app, StartupScope.REPLAY)
         try:
             base = _nonce("N45")
             uni = base + " uni ✓ 你好"
@@ -367,37 +371,10 @@ class TestMeshtasticPairIngress:
                 ["sendn", _PEER_PORT, json.dumps(texts)],
                 120,
             )
-            sent_ids = [item["sent_id"] for item in sent]
-            assert all(sent_ids), "peer failed to submit a send"
-            sender_ids = {item.get("sender_id") for item in sent}
-            assert (
-                len(sender_ids) == 1 and None not in sender_ids
-            ), f"peer did not report one native sender id: {sender_ids!r}"
-            expected_sender = next(iter(sender_ids))
-
-            async def _admitted(packet_id: str) -> dict | None:
-                deadline = time.monotonic() + 60
-                while time.monotonic() < deadline:
-                    ref = await app.storage.resolve_native_ref(
-                        "mt_radio", "0", str(packet_id)
-                    )
-                    if ref:
-                        ev = await app.storage.get(ref)
-                        return ev
-                    await asyncio.sleep(1.0)
-                return None
-
-            for text, pid in zip((uni, nl), sent_ids[:2], strict=True):
-                ev = await _admitted(str(pid))
-                assert ev is not None, f"peer message {text[:20]!r} not admitted"
-                assert ev.payload["body"] == text
-                assert ev.source_transport_id == expected_sender
-            # Identical text, distinct packet ids -> distinct durable events.
-            ev1 = await _admitted(str(sent_ids[2]))
-            ev2 = await _admitted(str(sent_ids[3]))
-            assert ev1 is not None and ev2 is not None
-            assert ev1.source_transport_id == expected_sender
-            assert ev2.source_transport_id == expected_sender
-            assert ev1.event_id != ev2.event_id
+            sent_ids, expected_sender = submitted_batch(sent, texts)
+            # REPLAY intentionally keeps the pending ingress owner alive.
+            # Verify every body through that owner, including both identical
+            # submissions, and prove distinct identities by native ref.
+            await assert_admitted_batch(app.storage, texts, sent_ids, expected_sender)
         finally:
             await _stop_app(app)
