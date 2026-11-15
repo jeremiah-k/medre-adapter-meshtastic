@@ -45,7 +45,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import time
 import uuid
 from pathlib import Path
 
@@ -66,6 +65,7 @@ from medre_meshtastic_tests.helpers.pair_ingress import (
     assert_admitted_batch,
     submitted_batch,
 )
+from medre_meshtastic_tests.helpers.pair_receipts import await_sent_receipt
 
 # ---------------------------------------------------------------------------
 # Environment gate
@@ -184,21 +184,6 @@ async def _stop_app(app) -> None:
     await bounded(app.stop(), 30.0, "pair runtime app.stop()")
 
 
-async def _await_receipts(storage, event_id: str) -> list:
-    """Poll durable delivery receipts for one event, bounded."""
-
-    async def _poll() -> list:
-        deadline = time.monotonic() + _RECEIPT_TIMEOUT
-        while time.monotonic() < deadline:
-            receipts = await storage.list_receipts_for_event(event_id)
-            if receipts:
-                return receipts
-            await asyncio.sleep(1.0)
-        return []
-
-    return await _poll()
-
-
 def _nonce(prefix: str) -> str:
     return f"MEDRE {prefix}-{uuid.uuid4().hex[:10]}"
 
@@ -230,8 +215,13 @@ class TestMeshtasticPairEgress:
             async with async_peer_context(_PeerListener(_RECEIPT_TIMEOUT + 20)) as peer:
                 await fake.simulate_inbound(packet)
                 event = fake.inbound_events[-1]
-                receipts = await _await_receipts(app.storage, event.event_id)
-                assert receipts, "no durable delivery receipt appeared"
+                latest = await await_sent_receipt(
+                    app.storage,
+                    event.event_id,
+                    target_adapter="mt_radio",
+                    route_id="lab_egress",
+                    timeout=_RECEIPT_TIMEOUT,
+                )
                 peer_out = await async_packets_until(
                     peer.packets_until,
                     lambda packets: any(
@@ -249,10 +239,9 @@ class TestMeshtasticPairEgress:
             # Layer B: native packet id recorded in the durable receipt.
             # Meshtastic egress tops out at "sent" (SDK acceptance) — RF
             # receipt is layer C, observed by the independent peer above.
-            latest = max(receipts, key=lambda r: r.sequence)
             assert (
                 latest.status == "sent"
-            ), f"receipt status {latest.status!r}, error={latest.error!r}"
+            ), f"receipt status {latest.status!r}, failure={latest.failure_kind!r}"
             assert (
                 latest.adapter_message_id
             ), "receipt carries no native/adapter message id"
