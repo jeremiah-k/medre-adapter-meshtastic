@@ -165,8 +165,17 @@ def _build_runtime(db_path: Path, *, with_route: bool):
     return RuntimeBuilder(config, paths).build()
 
 
-async def _start_app(app) -> None:
-    await bounded(app.start(), 30.0, "pair runtime app.start()")
+def _startup_scope():
+    from medre.runtime.app import StartupScope
+
+    return StartupScope
+
+
+async def _start_app(app, scope=None) -> None:
+    if scope is None:
+        await bounded(app.start(), 30.0, "pair runtime app.start()")
+    else:
+        await bounded(app.start(scope), 30.0, "pair runtime app.start(scope=REPLAY)")
 
 
 async def _stop_app(app) -> None:
@@ -352,7 +361,7 @@ class TestMeshtasticPairIngress:
         payloads must be preserved exactly in canonical content.
         """
         app = _build_runtime(tmp_path / "lab.db", with_route=False)
-        await _start_app(app)
+        await _start_app(app, _startup_scope().REPLAY)
         try:
             base = _nonce("N45")
             uni = base + " uni ✓ 你好"
@@ -375,29 +384,53 @@ class TestMeshtasticPairIngress:
             ), f"peer did not report one native sender id: {sender_ids!r}"
             expected_sender = next(iter(sender_ids))
 
-            async def _admitted(packet_id: str) -> dict | None:
+            # Content observation inside the live ingress window.  Admission
+            # moves string bodies into separated content storage and
+            # storage.get() is the content-free identity projection by
+            # contract.  The authorized full read (read_event_for_ingress)
+            # is retained exactly while the durable ingress hold is live
+            # (pending/processing), and the runtime's durable-ingress
+            # worker releases that hold within its first claim cycle.
+            # This test therefore starts the runtime in REPLAY scope: the
+            # docstring-guaranteed mode where adapters and the durable
+            # admission boundary run live but the durable-ingress worker
+            # never starts, so admitted rows stay pending and the
+            # authorized read is deterministic.  RF, adapters, admission
+            # and identity are all real; only post-admission routing (not
+            # exercised by this no-route test) is deferred.
+            async def _read_full(ref: str) -> dict | None:
+                read = await app.storage.read_event_for_ingress(ref)
+                if read.status == "retained" and read.event is not None:
+                    return read.event
+                return None
+
+            async def _durable_ref(packet_id: str) -> str | None:
                 deadline = time.monotonic() + 60
                 while time.monotonic() < deadline:
                     ref = await app.storage.resolve_native_ref(
                         "mt_radio", "0", str(packet_id)
                     )
                     if ref:
-                        ev = await app.storage.get(ref)
-                        return ev
-                    await asyncio.sleep(1.0)
+                        return ref
+                    await asyncio.sleep(0.25)
                 return None
 
             for text, pid in zip((uni, nl), sent_ids[:2], strict=True):
-                ev = await _admitted(str(pid))
-                assert ev is not None, f"peer message {text[:20]!r} not admitted"
+                ref = await _durable_ref(str(pid))
+                assert ref, f"peer message {text[:20]!r} not durably admitted"
+                ev = await _read_full(ref)
+                assert ev is not None, f"content read for {text[:20]!r} was denied"
                 assert ev.payload["body"] == text
                 assert ev.source_transport_id == expected_sender
             # Identical text, distinct packet ids -> distinct durable events.
-            ev1 = await _admitted(str(sent_ids[2]))
-            ev2 = await _admitted(str(sent_ids[3]))
-            assert ev1 is not None and ev2 is not None
-            assert ev1.source_transport_id == expected_sender
-            assert ev2.source_transport_id == expected_sender
-            assert ev1.event_id != ev2.event_id
+            id1 = await _durable_ref(str(sent_ids[2]))
+            id2 = await _durable_ref(str(sent_ids[3]))
+            assert id1 is not None and id2 is not None
+            meta1 = await app.storage.get(id1)
+            meta2 = await app.storage.get(id2)
+            assert meta1 is not None and meta2 is not None
+            assert meta1.source_transport_id == expected_sender
+            assert meta2.source_transport_id == expected_sender
+            assert meta1.event_id != meta2.event_id
         finally:
             await _stop_app(app)
