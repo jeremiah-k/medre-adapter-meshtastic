@@ -74,6 +74,62 @@ or `meshtastic.ble_interface` MUST take precedence, allowing DEBUG diagnostics.
 This log policy MUST NOT convert an unavailable host controller into a permanent
 adapter failure or change Bluetooth power or pairing state.
 
+## Reconnect receive watermark
+
+A radio can hold undelivered packets in its FROMRADIO queue across a transport
+drop and hand the whole queue to the next successful connection. Judged against
+the original startup baselines, that queued pre-reconnect traffic could relay as
+fresh. The adapter therefore records a receive-ready watermark — a wall-clock
+epoch and a monotonic arm time — for every connection generation the session
+installs, before that client can subscribe or dispatch receive callbacks.
+
+The wall-clock `rxTime` gate judges each packet against the watermark of its own
+captured generation instead of the original startup epoch, with
+`startup_backlog_suppress_seconds` (default 5.0; `0` disables) as the cutoff
+tolerance. The semantics per timestamp class are explicit:
+
+- A valid `rxTime` older than the current generation's cutoff is suppressed as
+  queue backlog, permanently within that generation.
+- A valid `rxTime` at or after the cutoff is published immediately, including
+  while the monotonic window below is open; a reconnect never spends a blind
+  content-independent drain on live packets.
+- A missing or malformed `rxTime` cannot prove age. During the short monotonic
+  bootstrap window armed on every receive-ready installation after the first,
+  such packets are dropped and counted; after lazy expiry of the window they
+  relay, because their age cannot be judged. This bounds the unprovable-case
+  loss to a few seconds per reconnect episode instead of leaving queue backlog
+  a permanent blind spot.
+- A future `rxTime` is never suppressed. The local radio is trusted
+  infrastructure; a timestamp ahead of the host clock is treated as clock skew,
+  not stale backlog. Honest limit: queue backlog on a radio whose clock runs
+  ahead of the host by more than the tolerance is indistinguishable from live
+  traffic by `rxTime` and relays.
+- A radio clock trailing the host by more than the tolerance can have genuinely
+  fresh packets suppressed. `startup_backlog_suppress_seconds` doubles as the
+  skew tolerance; the same failure class exists at the initial connection.
+
+Repeated reconnects record a fresh watermark and arm a fresh window per
+generation; loss stays bounded per episode. Failed connection attempts advance
+the generation without producing receive-ready watermarks that any deliverable
+packet can reference; the next successful installation re-arms its own
+baseline. A pending degraded start installs no client and spends neither the
+watermark nor any window. Stop and start reset the watermark history and
+evidence counters with the rest of the connect-window state.
+
+The bootstrap window is fixed at five seconds and shares the startup drain's
+operator opt-out: `startup_packet_drain_seconds == 0` disables the window as
+well as the initial drain, keeping the connect-window drop family on one
+switch. No new configuration key is introduced. The initial-connect startup
+drain itself is unchanged: armed once before the first receive subscription,
+content-independent, and deliberately not re-armed on reconnects.
+
+Each window expiry emits one INFO completion line with the window's drop count;
+each in-window drop logs at DEBUG with the suppression log format. Diagnostics
+add `receive_ready_generation` (latest watermark generation), and
+`reconnect_backlog_packets_dropped` (cumulative unprovable-age drops), and
+`reconnect_receive_bootstrap_seconds` (the fixed window length). A late hook
+from a retired adapter lifecycle MUST NOT record a watermark or arm a window.
+
 ## Native health observations
 
 The adapter MUST report completed native health changes through the runtime's

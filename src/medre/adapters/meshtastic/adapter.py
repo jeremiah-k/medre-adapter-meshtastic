@@ -156,6 +156,25 @@ except ImportError:
     ProducerPressureReport = None  # type: ignore[assignment,misc]
 
 
+# Length of the generation-scoped monotonic bootstrap window armed on every
+# receive-ready installation after the first.  Behavioral reference:
+# mmrelay's ``RECONNECT_PRESTART_BOOTSTRAP_WINDOW_SECS``.  Unlike the
+# content-independent startup drain, the window only drops packets that
+# cannot prove their age (no usable ``rxTime``); provably fresh traffic
+# relays immediately, so a reconnect never spends a blind drain on live
+# packets.  Not operator-configurable: it shares the
+# ``startup_packet_drain_seconds`` opt-out with the startup drain, which
+# disables the connect-window drop family entirely when set to ``0``.
+_RECONNECT_RECEIVE_BOOTSTRAP_SECONDS: float = 5.0
+
+# Bounded retention of per-generation receive-ready watermarks.  Only the
+# current generation can pass the ownership fence, so retired watermarks
+# exist solely to keep in-flight gate evaluations coherent across the
+# fence-to-gate race of a reconnect; a small history covers that race
+# without unbounded growth on a flapping link.
+_RECEIVE_READY_EPOCH_HISTORY: int = 8
+
+
 def _is_native_routing_callback(classification: ClassificationResult) -> bool:
     """Return whether one classified inbound packet is a native routing callback.
 
@@ -334,9 +353,23 @@ class MeshtasticAdapter(AdapterContract):
 
         # Startup packet drain — content-independent drop window armed at
         # first receive-ready connection; see _check_startup_packet_drain.
+        # The same lock guards the reconnect receive-watermark state: both
+        # are connect-window baselines armed from session installation
+        # hooks and evaluated from two ingress paths.
         self._startup_drain_lock = threading.Lock()
         self._startup_drain_deadline_monotonic: float | None = None
         self._startup_drain_packets_dropped: int = 0
+
+        # Reconnect receive watermark — wall-clock receive-ready epoch per
+        # connection generation (see _record_connection_receive_ready) and
+        # the generation-scoped monotonic bootstrap window that drops
+        # packets unable to prove their age right after a reconnect; see
+        # _check_reconnect_receive_bootstrap.  The window state carries its
+        # generation, monotonic deadline, and the drops counted within this
+        # window (for the single completion summary line).
+        self._receive_ready_epochs: dict[int, float] = {}
+        self._reconnect_bootstrap: tuple[int, float, int] | None = None
+        self._reconnect_backlog_packets_dropped: int = 0
 
         # Outbound gate suppression counter
         self._outbound_gate_suppressed: int = 0
@@ -415,6 +448,9 @@ class MeshtasticAdapter(AdapterContract):
         with self._startup_drain_lock:
             self._startup_drain_deadline_monotonic = None
             self._startup_drain_packets_dropped = 0
+            self._receive_ready_epochs = {}
+            self._reconnect_bootstrap = None
+            self._reconnect_backlog_packets_dropped = 0
 
         # Create session and delegate lifecycle
         session = MeshtasticSession(
@@ -424,6 +460,9 @@ class MeshtasticAdapter(AdapterContract):
             logger=ctx.logger if ctx.logger else None,
             on_health_change=lambda: self._report_native_health(health_epoch),
             on_initial_connection=lambda: self._arm_startup_backlog(health_epoch),
+            on_connection_ready=lambda generation: (
+                self._record_connection_receive_ready(health_epoch, generation)
+            ),
         )
         self._session = session
 
@@ -443,6 +482,7 @@ class MeshtasticAdapter(AdapterContract):
             self._start_time = None
             self._adapter_start_epoch = None
             self._startup_drain_deadline_monotonic = None
+            self._reconnect_bootstrap = None
             raise
         except Exception:
             # Best-effort cleanup of partially-started session.
@@ -456,6 +496,7 @@ class MeshtasticAdapter(AdapterContract):
             self._start_time = None
             self._adapter_start_epoch = None
             self._startup_drain_deadline_monotonic = None
+            self._reconnect_bootstrap = None
             raise
 
         self._loop = asyncio.get_running_loop()
@@ -889,6 +930,159 @@ class MeshtasticAdapter(AdapterContract):
                 time.monotonic() + window if window > 0 else None
             )
 
+    def _record_connection_receive_ready(self, epoch: int, generation: int) -> None:
+        """Record the receive-ready watermark of one connection generation.
+
+        Invoked by the session under its client-state lock on EVERY
+        successful client installation — the first receive-ready connection
+        and every transparent reconnect alike — before receive callbacks of
+        the new client can subscribe or dispatch.  The wall-clock epoch is
+        the freshness baseline the ``rxTime`` gate judges this generation's
+        packets against; see :meth:`_check_startup_backlog_suppress`.
+
+        A late hook from a retired adapter lifecycle must not record a
+        watermark.  Installations after the first also arm the
+        generation-scoped reconnect bootstrap window (monotonic), unless the
+        operator disabled the connect-window drop family with
+        ``startup_packet_drain_seconds == 0``.
+        """
+        if epoch != self._health_epoch or self.ctx is None:
+            return
+        wall_epoch = time.time()
+        with self._startup_drain_lock:
+            self._receive_ready_epochs[generation] = wall_epoch
+            if len(self._receive_ready_epochs) > _RECEIVE_READY_EPOCH_HISTORY:
+                for stale in sorted(self._receive_ready_epochs)[
+                    :-_RECEIVE_READY_EPOCH_HISTORY
+                ]:
+                    del self._receive_ready_epochs[stale]
+            if self._adapter_start_epoch is not None and (
+                float(self._config.startup_packet_drain_seconds) > 0
+            ):
+                self._reconnect_bootstrap = (
+                    generation,
+                    time.monotonic() + _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
+                    0,
+                )
+
+    def _receive_ready_epoch(self, generation: int | None) -> float | None:
+        """Return the receive-ready watermark for *generation*, if recorded.
+
+        Unknown generations (direct test injection, fake mode, generations
+        older than the retained history) fall back to the initial
+        receive-ready baseline so the ``rxTime`` gate never widens beyond
+        its original behavior.
+        """
+        with self._startup_drain_lock:
+            recorded = (
+                self._receive_ready_epochs.get(generation)
+                if generation is not None
+                else None
+            )
+        if recorded is not None:
+            return recorded
+        return self._adapter_start_epoch
+
+    def _check_reconnect_receive_bootstrap(
+        self,
+        packet: dict[str, Any],
+        connection_generation: int | None,
+        packet_id: Any,
+    ) -> bool:
+        """Check whether an age-unprovable packet falls inside the reconnect bootstrap window.
+
+        Every receive-ready installation after the first (a transparent
+        reconnect, or the reinstallation retry after a failed initial
+        setup) arms a short monotonic window scoped to its connection
+        generation.  While the window is open, a relay-classified packet on
+        that generation without a usable ``rxTime`` is dropped: the radio
+        may be emptying its FROMRADIO queue of pre-reconnect backlog and a
+        packet without a timestamp cannot prove it is not part of that
+        backlog.  Packets WITH a usable ``rxTime`` are never dropped by
+        this window — their age is judged exclusively by the wall-clock
+        ``rxTime`` gate, so provably fresh traffic relays immediately and a
+        reconnect never spends a blind content-independent drain on live
+        packets.  After lazy expiry the window stays closed for the rest of
+        the generation; missing or malformed timestamps then relay as they
+        always have, because their age cannot be judged.
+
+        Disabled entirely when ``startup_packet_drain_seconds == 0`` — the
+        operator opt-out that disables the startup drain also disables this
+        reconnect window, keeping the connect-window drop family on one
+        switch.
+
+        Returns
+        -------
+        bool
+            ``True`` when the packet must be dropped (unprovable age inside
+            the live window); ``False`` otherwise.
+        """
+        # Pure, side-effect-free age check first: packets with a usable
+        # timestamp leave immediately and never touch the window state or
+        # the drop counters — the wall-clock gate owns their decision.
+        packet_time = extract_meshtastic_rx_time(packet)
+        if packet_time is not None:
+            return False
+
+        expired = False
+        window_drops = 0
+        remaining_for_log = 0.0
+        dropped = False
+        with self._startup_drain_lock:
+            entry = self._reconnect_bootstrap
+            if entry is None:
+                return False
+            boot_generation, deadline, live_drops = entry
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._reconnect_bootstrap = None
+                expired = True
+                window_drops = live_drops
+            elif (
+                connection_generation is not None
+                and connection_generation != boot_generation
+            ):
+                # The window belongs to a replaced connection; this
+                # in-flight packet was fenced against an older generation
+                # and will be rejected at publish regardless.
+                return False
+            else:
+                self._reconnect_bootstrap = (
+                    boot_generation,
+                    deadline,
+                    live_drops + 1,
+                )
+                self._reconnect_backlog_packets_dropped += 1
+                window_drops = live_drops + 1
+                remaining_for_log = remaining
+                dropped = True
+
+        if expired:
+            ctx = self.ctx
+            if ctx is not None:
+                ctx.logger.info(
+                    "MeshtasticAdapter %s: reconnect receive bootstrap window "
+                    "ended - accepting packets (dropped=%d)",
+                    self.adapter_id,
+                    window_drops,
+                )
+            return False
+        if not dropped:
+            return False
+
+        ctx = self.ctx
+        if ctx is not None:
+            ctx.logger.debug(
+                "MeshtasticAdapter %s: reconnect backlog dropped "
+                "transport=meshtastic packet_id=%s remaining=%.3fs "
+                "window=%s",
+                self.adapter_id,
+                packet_id,
+                remaining_for_log,
+                _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
+            )
+        return True
+
     def _check_startup_packet_drain(self, packet_id: Any) -> bool:
         """Check whether a relay-classified packet falls inside the startup drain window.
 
@@ -956,7 +1150,10 @@ class MeshtasticAdapter(AdapterContract):
         return True
 
     def _check_startup_backlog_suppress(
-        self, packet: dict[str, Any], packet_id: Any
+        self,
+        packet: dict[str, Any],
+        packet_id: Any,
+        connection_generation: int | None = None,
     ) -> bool:
         """Check whether a relay-classified packet should be suppressed as stale backlog.
 
@@ -965,8 +1162,16 @@ class MeshtasticAdapter(AdapterContract):
         and the suppression decision to
         :func:`~medre.core.policies.startup_backlog_suppress.should_suppress_startup_backlog`.
 
+        The wall-clock baseline is the receive-ready watermark of the
+        packet's own connection generation (see
+        :meth:`_record_connection_receive_ready`), so queue backlog drained
+        by a freshly reconnected radio is judged against that reconnect
+        instead of the original startup.  Generations without a recorded
+        watermark (direct test injection, fake mode, pruned history) fall
+        back to the initial receive-ready baseline.
+
         Returns ``True`` when the packet's ``rxTime`` predates
-        ``adapter_start_epoch - startup_backlog_suppress_seconds``.
+        ``baseline - startup_backlog_suppress_seconds``.
 
         Conservative: missing, ``None``, or non-numeric ``rxTime`` are **not**
         suppressed.  A suppression window of ``0`` disables suppression entirely.
@@ -977,6 +1182,9 @@ class MeshtasticAdapter(AdapterContract):
             Raw Meshtastic packet dict (must contain top-level ``rxTime``).
         packet_id:
             The packet ID for safe logging.
+        connection_generation:
+            Connection generation captured at receive validation; ``None``
+            retains the initial receive-ready baseline.
 
         Returns
         -------
@@ -984,26 +1192,26 @@ class MeshtasticAdapter(AdapterContract):
             ``True`` if the packet should be suppressed; ``False`` otherwise.
         """
         window = self._config.startup_backlog_suppress_seconds
-        if window <= 0 or self._adapter_start_epoch is None:
+        baseline_epoch = self._receive_ready_epoch(connection_generation)
+        if window <= 0 or baseline_epoch is None:
             return False
 
         packet_time = extract_meshtastic_rx_time(packet)
-        adapter_start = datetime.fromtimestamp(
-            self._adapter_start_epoch, tz=timezone.utc
-        )
+        baseline = datetime.fromtimestamp(baseline_epoch, tz=timezone.utc)
 
-        if should_suppress_startup_backlog(packet_time, adapter_start, float(window)):
+        if should_suppress_startup_backlog(packet_time, baseline, float(window)):
             if self.ctx is not None:
-                cutoff = self._adapter_start_epoch - float(window)
+                cutoff = baseline_epoch - float(window)
                 self.ctx.logger.debug(
                     "MeshtasticAdapter %s: startup backlog suppressed "
                     "transport=meshtastic packet_id=%s rxTime=%s cutoff=%s "
-                    "window=%s",
+                    "window=%s generation=%s",
                     self.adapter_id,
                     packet_id,
                     packet.get("rxTime"),
                     cutoff,
                     window,
+                    connection_generation,
                 )
             return True
 
@@ -1088,10 +1296,24 @@ class MeshtasticAdapter(AdapterContract):
             if self._check_startup_packet_drain(classification.packet_id):
                 return
 
-            # Startup backlog suppression gate
+            # Startup backlog suppression gate — wall-clock rxTime judged
+            # against the receive-ready watermark of this packet's own
+            # connection generation, so pre-reconnect queue backlog cannot
+            # pass against the original startup baseline.
             self._startup_backlog_packets_seen += 1
-            if self._check_startup_backlog_suppress(packet, classification.packet_id):
+            if self._check_startup_backlog_suppress(
+                packet, classification.packet_id, connection_generation
+            ):
                 self._startup_backlog_packets_suppressed += 1
+                return
+
+            # Reconnect receive bootstrap gate — drops only packets whose
+            # age cannot be proven (no usable rxTime) while the short
+            # generation-scoped window after a transparent reconnect is
+            # open.  Provably fresh packets never reach the drop branch.
+            if self._check_reconnect_receive_bootstrap(
+                packet, connection_generation, classification.packet_id
+            ):
                 return
 
             self._log_classification(classification)
@@ -1327,10 +1549,22 @@ class MeshtasticAdapter(AdapterContract):
         if self._check_startup_packet_drain(classification.packet_id):
             return
 
-        # Startup backlog suppression gate
+        # Startup backlog suppression gate — same per-generation receive
+        # watermark baseline as the live callback path.
+        connection_generation = (
+            session.connection_generation if session is not None else None
+        )
         self._startup_backlog_packets_seen += 1
-        if self._check_startup_backlog_suppress(packet, classification.packet_id):
+        if self._check_startup_backlog_suppress(
+            packet, classification.packet_id, connection_generation
+        ):
             self._startup_backlog_packets_suppressed += 1
+            return
+
+        # Reconnect receive bootstrap gate — mirrors the live callback path.
+        if self._check_reconnect_receive_bootstrap(
+            packet, connection_generation, classification.packet_id
+        ):
             return
 
         self._log_classification(classification)
@@ -1355,6 +1589,12 @@ class MeshtasticAdapter(AdapterContract):
             Combined adapter + session diagnostics.
         """
         drain_task = self._drain_task
+        with self._startup_drain_lock:
+            latest_receive_ready_generation = (
+                sorted(self._receive_ready_epochs)[-1]
+                if self._receive_ready_epochs
+                else None
+            )
         result: dict[str, Any] = {
             "adapter_id": self.adapter_id,
             "platform": self.platform,
@@ -1413,6 +1653,11 @@ class MeshtasticAdapter(AdapterContract):
             # independent connect window before reaching the rxTime gate.
             "startup_drain_packets_dropped": self._startup_drain_packets_dropped,
             "startup_packet_drain_seconds": self._config.startup_packet_drain_seconds,
+            # Reconnect receive watermark — per-generation rxTime baseline
+            # and the generation-scoped unprovable-packet bootstrap window.
+            "receive_ready_generation": latest_receive_ready_generation,
+            "reconnect_backlog_packets_dropped": self._reconnect_backlog_packets_dropped,
+            "reconnect_receive_bootstrap_seconds": _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,
