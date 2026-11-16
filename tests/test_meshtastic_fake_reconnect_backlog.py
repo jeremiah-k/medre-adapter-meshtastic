@@ -272,3 +272,33 @@ async def test_fake_rapid_reconnect_retires_initial_drain(monkeypatch) -> None:
         assert len(adapter.inbound_events) == 2
     finally:
         await adapter.stop()
+
+
+async def test_fake_only_current_generation_settles_expired_bootstrap(caplog) -> None:
+    adapter = FakeMeshtasticAdapter(
+        make_meshtastic_config(startup_packet_drain_seconds=15.0)
+    )
+    await adapter.start(_make_context())
+    try:
+        initial = adapter._connection_generation
+        generation = adapter.simulate_reconnect()
+        await adapter.simulate_inbound(_text("unknown", 1, None))
+        adapter._reconnect_bootstrap = (generation, time.monotonic() - 1.0, 1)
+        with caplog.at_level(logging.INFO):
+            assert not adapter._check_reconnect_receive_bootstrap(
+                _text("retired", 2, None), initial
+            )
+            assert adapter._reconnect_bootstrap is not None
+            await adapter.simulate_inbound(_text("fresh", 3, time.time()))
+            await adapter.simulate_inbound(_text("unknown later", 4, None))
+        assert adapter._reconnect_bootstrap is None
+        assert len(adapter.inbound_events) == 2
+        lines = [
+            rec.getMessage()
+            for rec in caplog.records
+            if "reconnect receive bootstrap window ended" in rec.getMessage()
+        ]
+        assert len(lines) == 1
+        assert "dropped=1" in lines[0]
+    finally:
+        await adapter.stop()

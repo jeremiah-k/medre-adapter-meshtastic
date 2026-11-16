@@ -803,3 +803,42 @@ async def test_generation_cutoff_survives_bootstrap_expiry(monkeypatch) -> None:
         assert await wait_until(lambda: harness.ctx.publish_inbound.await_count == 1)
     finally:
         await harness.adapter.stop()
+
+
+async def test_only_current_generation_settles_expired_bootstrap(
+    monkeypatch, caplog
+) -> None:
+    harness = _Harness(monkeypatch)
+    try:
+        await harness.start()
+        initial = harness.session.connection_generation
+        harness.clock.wall += 20
+        harness.clock.monotonic += 20
+        generation, client = await harness.reconnect()
+        harness.on_receive(client, _text("unknown", 1, None))
+        harness.clock.wall += 5
+        harness.clock.monotonic += 5
+        with caplog.at_level(logging.INFO):
+            assert not harness.adapter._check_reconnect_receive_bootstrap(
+                _text("retired", 2, None), initial, 2
+            )
+            assert harness.adapter._reconnect_bootstrap is not None
+            harness.on_receive(client, _text("fresh", 3, harness.clock.wall))
+            assert await wait_until(
+                lambda: harness.ctx.publish_inbound.await_count == 1
+            )
+            harness.on_receive(client, _text("unknown later", 4, None))
+            assert await wait_until(
+                lambda: harness.ctx.publish_inbound.await_count == 2
+            )
+        assert harness.adapter._reconnect_bootstrap is None
+        lines = [
+            rec.getMessage()
+            for rec in caplog.records
+            if "reconnect receive bootstrap window ended" in rec.getMessage()
+        ]
+        assert len(lines) == 1
+        assert "dropped=1" in lines[0]
+        assert harness.adapter.diagnostics()["receive_ready_generation"] == generation
+    finally:
+        await harness.adapter.stop()

@@ -1005,8 +1005,8 @@ class MeshtasticAdapter(AdapterContract):
         """Check whether an age-unprovable packet falls inside the reconnect bootstrap window.
 
         Every receive-ready installation after successful initial setup
-        (a transparent reconnect) arms a short monotonic window scoped to its connection
-        generation.  While the window is open, a relay-classified packet on
+        (a transparent reconnect) arms a short monotonic window scoped to its
+        connection generation.  While the window is open, a relay-classified packet on
         that generation without a usable ``rxTime`` is dropped: the radio
         may be emptying its FROMRADIO queue of pre-reconnect backlog and a
         packet without a timestamp cannot prove it is not part of that
@@ -1029,12 +1029,9 @@ class MeshtasticAdapter(AdapterContract):
             ``True`` when the packet must be dropped (unprovable age inside
             the live window); ``False`` otherwise.
         """
-        # Pure, side-effect-free age check first: packets with a usable
-        # timestamp leave immediately and never touch the window state or
-        # the drop counters — the wall-clock gate owns their decision.
+        # A usable timestamp can settle an expired window, but never counts
+        # as a bootstrap drop. The wall-clock gate owns its age decision.
         packet_time = extract_meshtastic_rx_time(packet)
-        if packet_time is not None:
-            return False
 
         expired = False
         window_drops = 0
@@ -1045,20 +1042,14 @@ class MeshtasticAdapter(AdapterContract):
             if entry is None:
                 return False
             boot_generation, deadline, live_drops = entry
+            if connection_generation != boot_generation:
+                return False
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self._reconnect_bootstrap = None
                 expired = True
                 window_drops = live_drops
-            elif (
-                connection_generation is not None
-                and connection_generation != boot_generation
-            ):
-                # The window belongs to a replaced connection; this
-                # in-flight packet was fenced against an older generation
-                # and will be rejected at publish regardless.
-                return False
-            else:
+            elif packet_time is None:
                 self._reconnect_bootstrap = (
                     boot_generation,
                     deadline,

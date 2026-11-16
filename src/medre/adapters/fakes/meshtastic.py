@@ -568,8 +568,6 @@ class FakeMeshtasticAdapter(AdapterContract):
         completion line with this window's drop count.
         """
         packet_time = extract_meshtastic_rx_time(packet)
-        if packet_time is not None:
-            return False
 
         expired = False
         window_drops = 0
@@ -578,17 +576,14 @@ class FakeMeshtasticAdapter(AdapterContract):
         if entry is None:
             return False
         boot_generation, deadline, live_drops = entry
+        if connection_generation != boot_generation:
+            return False
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             self._reconnect_bootstrap = None
             expired = True
             window_drops = live_drops
-        elif (
-            connection_generation is not None
-            and connection_generation != boot_generation
-        ):
-            return False
-        else:
+        elif packet_time is None:
             self._reconnect_bootstrap = (boot_generation, deadline, live_drops + 1)
             self._reconnect_backlog_packets_dropped += 1
             window_drops = live_drops + 1
