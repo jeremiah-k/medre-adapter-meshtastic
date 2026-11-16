@@ -136,6 +136,16 @@ class MeshtasticSession:
         client can deliver receive callbacks (also for fake connections).
         Failed callback setup may invoke it again on the next attempt.
         Later reconnects do not invoke it after successful initial setup.
+    on_connection_ready:
+        Optional synchronous hook invoked on every client activation attempt,
+        including transparent reconnects, before subscription succeeds. It runs
+        on the session loop under the client-state lock, after the new
+        generation is published and before receive callbacks can be
+        subscribed or dispatched, and receives the new connection
+        generation and whether initial setup is still pending (including a
+        retry after failed initial subscription). The hook must be fast,
+        non-blocking, and must not raise; a raising hook fails the
+        installation like any other setup error.
     """
 
     __slots__ = (
@@ -150,6 +160,7 @@ class MeshtasticSession:
         "_generation_callback",
         "_health_callback",
         "_initial_connection_callback",
+        "_connection_ready_callback",
         "_initial_receive_ready",
         "_logger",
         "_started",
@@ -190,6 +201,7 @@ class MeshtasticSession:
         logger: logging.Logger | None = None,
         on_health_change: Callable[[], None] | None = None,
         on_initial_connection: Callable[[], None] | None = None,
+        on_connection_ready: Callable[[int, bool], None] | None = None,
     ) -> None:
         self._config = config
         self._adapter_id = adapter_id
@@ -201,6 +213,7 @@ class MeshtasticSession:
         self._generation_callback: Callable[[dict[str, Any], int], None] | None = None
         self._health_callback = on_health_change
         self._initial_connection_callback = on_initial_connection
+        self._connection_ready_callback = on_connection_ready
         self._initial_receive_ready = False
         self._logger: logging.Logger = logger if logger is not None else _logger
         self._started: bool = False
@@ -293,16 +306,22 @@ class MeshtasticSession:
                 callback()
 
     def _install_client(self, client: Any) -> None:
-        """Install a client with the first-connection policy already armed.
+        """Install a client with the per-connection policy already armed.
 
         Subscription may dispatch synchronously. Mark initial setup complete
         only after subscription and node refresh succeed, so a retry after
         partial setup gets a fresh baseline.
         """
-        # Publish the client and its ingress baseline as one ownership step.
-        # A reader cannot observe the new client with the previous baseline.
+        # Publish the client and its ingress baselines as one ownership step.
+        # A reader cannot observe the new client with the previous baseline:
+        # the per-generation receive watermark is recorded and the initial
+        # connection policy is armed before any receive callback of this
+        # client can run.
         with self._client_state_lock:
             self._activate_client(client)
+            callback = self._connection_ready_callback
+            if callback is not None:
+                callback(self._connection_generation, not self._initial_receive_ready)
             self._prepare_initial_ingress()
         self._subscribe_callbacks()
         self._refresh_node_id()

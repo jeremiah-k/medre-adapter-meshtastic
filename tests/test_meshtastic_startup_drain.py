@@ -600,6 +600,7 @@ async def test_initial_subscription_failure_rearms_but_later_reconnect_does_not(
             raise MeshtasticConnectionError("subscription failed")
         if calls == 2:
             assert adapter._startup_drain_deadline_monotonic == 135.0
+            assert adapter._reconnect_bootstrap is None
         if calls == 3:
             assert adapter._startup_drain_deadline_monotonic is None
 
