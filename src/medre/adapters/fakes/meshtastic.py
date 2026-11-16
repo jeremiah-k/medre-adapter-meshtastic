@@ -61,6 +61,13 @@ _logger = logging.getLogger(__name__)
 # Maximum history size for fake adapter tracking lists.
 _MAX_FAKE_HISTORY: int = 1000
 
+# Reconnect receive-watermark policy constants, mirrored from the real
+# adapter so fake-tier tests exercise the same window shape without a
+# session or SDK.  Kept in agreement with
+# medre.adapters.meshtastic.adapter by test_meshtastic_reconnect_backlog.
+_RECONNECT_RECEIVE_BOOTSTRAP_SECONDS: float = 5.0
+_RECEIVE_READY_EPOCH_HISTORY: int = 8
+
 
 def _trim(lst: list[Any], maxsize: int = _MAX_FAKE_HISTORY) -> None:
     """Evict oldest entries from *lst* when it exceeds *maxsize*."""
@@ -226,6 +233,14 @@ class FakeMeshtasticAdapter(AdapterContract):
         # _check_startup_packet_drain.
         self._startup_drain_deadline_monotonic: float | None = None
         self._startup_drain_packets_dropped: int = 0
+        # Reconnect receive watermark — mirrors the real adapter's
+        # per-generation rxTime baseline and its generation-scoped
+        # unprovable-packet bootstrap window; see simulate_reconnect and
+        # _check_reconnect_receive_bootstrap.
+        self._connection_generation: int = 0
+        self._receive_ready_epochs: dict[int, float] = {}
+        self._reconnect_bootstrap: tuple[int, float, int] | None = None
+        self._reconnect_backlog_packets_dropped: int = 0
         # Outbound gate suppression counter
         self._outbound_gate_suppressed: int = 0
         # Build per-config capabilities matching the real adapter pattern.
@@ -280,6 +295,13 @@ class FakeMeshtasticAdapter(AdapterContract):
             time.monotonic() + drain_window if drain_window > 0 else None
         )
         self._startup_drain_packets_dropped = 0
+        # The fake start is its own first receive-ready connection:
+        # record the generation-1 watermark; the bootstrap window never
+        # arms on the first connection, mirroring the real adapter.
+        self._connection_generation = 1
+        self._receive_ready_epochs = {1: time.time()}
+        self._reconnect_bootstrap = None
+        self._reconnect_backlog_packets_dropped = 0
         ctx.logger.info("FakeMeshtasticAdapter %s started", self.adapter_id)
 
     async def stop(self, timeout: float = 5.0) -> None:
@@ -318,6 +340,14 @@ class FakeMeshtasticAdapter(AdapterContract):
             # Startup packet drain — mirrors the real adapter's evidence keys
             "startup_drain_packets_dropped": self._startup_drain_packets_dropped,
             "startup_packet_drain_seconds": self._config.startup_packet_drain_seconds,
+            # Reconnect receive watermark — mirrors the real adapter's keys
+            "receive_ready_generation": (
+                sorted(self._receive_ready_epochs)[-1]
+                if self._receive_ready_epochs
+                else None
+            ),
+            "reconnect_backlog_packets_dropped": self._reconnect_backlog_packets_dropped,
+            "reconnect_receive_bootstrap_seconds": _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,
@@ -471,6 +501,115 @@ class FakeMeshtasticAdapter(AdapterContract):
 
     # -- Inbound simulation -------------------------------------------------
 
+    def simulate_reconnect(self) -> int:
+        """Simulate a transparent transport reconnect.
+
+        Records a fresh receive-ready watermark for the new connection
+        generation and arms the generation-scoped unprovable-packet
+        bootstrap window, mirroring what the real session/adapter pair
+        does on every successful client installation after the first.
+        Requires a started adapter (the fake has no recovery loop of its
+        own); returns the new connection generation.
+
+        A ``startup_packet_drain_seconds`` of ``0`` keeps the window
+        unarmed — the operator opt-out that disables the startup drain
+        disables the reconnect window too.
+        """
+        if not self._started:
+            raise RuntimeError(
+                f"Adapter {self.adapter_id!r} has not been started; "
+                "call start() before simulate_reconnect()."
+            )
+        self._connection_generation += 1
+        generation = self._connection_generation
+        self._receive_ready_epochs[generation] = time.time()
+        if len(self._receive_ready_epochs) > _RECEIVE_READY_EPOCH_HISTORY:
+            for stale in sorted(self._receive_ready_epochs)[
+                :-_RECEIVE_READY_EPOCH_HISTORY
+            ]:
+                del self._receive_ready_epochs[stale]
+        if float(self._config.startup_packet_drain_seconds) > 0:
+            self._reconnect_bootstrap = (
+                generation,
+                time.monotonic() + _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
+                0,
+            )
+        return generation
+
+    def _receive_ready_epoch(self, generation: int | None) -> float | None:
+        """Return the receive-ready watermark for *generation*.
+
+        Unknown generations fall back to the startup baseline, mirroring
+        the real adapter.
+        """
+        recorded = (
+            self._receive_ready_epochs.get(generation)
+            if generation is not None
+            else None
+        )
+        if recorded is not None:
+            return recorded
+        return self._adapter_start_epoch
+
+    def _check_reconnect_receive_bootstrap(
+        self,
+        packet: dict[str, Any],
+        connection_generation: int | None,
+    ) -> bool:
+        """Drop age-unprovable packets inside the reconnect bootstrap window.
+
+        Mirrors
+        :meth:`~medre.adapters.meshtastic.adapter.MeshtasticAdapter._check_reconnect_receive_bootstrap`:
+        packets with a usable ``rxTime`` are never dropped by the window;
+        a packet without one is dropped only while the window for its
+        generation is live.  Expiry is lazy and emits a single INFO
+        completion line with this window's drop count.
+        """
+        packet_time = extract_meshtastic_rx_time(packet)
+        if packet_time is not None:
+            return False
+
+        expired = False
+        window_drops = 0
+        dropped = False
+        entry = self._reconnect_bootstrap
+        if entry is None:
+            return False
+        boot_generation, deadline, live_drops = entry
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            self._reconnect_bootstrap = None
+            expired = True
+            window_drops = live_drops
+        elif (
+            connection_generation is not None
+            and connection_generation != boot_generation
+        ):
+            return False
+        else:
+            self._reconnect_bootstrap = (boot_generation, deadline, live_drops + 1)
+            self._reconnect_backlog_packets_dropped += 1
+            window_drops = live_drops + 1
+            dropped = True
+
+        if expired:
+            _logger.info(
+                "FakeMeshtasticAdapter %s: reconnect receive bootstrap window "
+                "ended - accepting packets (dropped=%d)",
+                self.adapter_id,
+                window_drops,
+            )
+            return False
+        if not dropped:
+            return False
+        _logger.debug(
+            "FakeMeshtasticAdapter %s: reconnect backlog dropped "
+            "transport=meshtastic window=%s",
+            self.adapter_id,
+            _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
+        )
+        return True
+
     async def simulate_inbound(
         self,
         packet: dict[str, Any],
@@ -481,8 +620,10 @@ class FakeMeshtasticAdapter(AdapterContract):
 
         Classifies, decodes, and publishes the packet through the same
         path as a real inbound packet.  Applies the startup packet drain
-        window and rxTime-based startup backlog suppression using the
-        same shared utilities as the real adapter.
+        window, the per-generation rxTime-based startup backlog
+        suppression, and the generation-scoped reconnect receive
+        bootstrap window, using the same shared utilities and semantics
+        as the real adapter.
 
         Parameters
         ----------
@@ -522,19 +663,28 @@ class FakeMeshtasticAdapter(AdapterContract):
         if self._check_startup_packet_drain(classification.packet_id):
             return
 
-        # Startup backlog suppression gate (mirrors real adapter)
+        # Startup backlog suppression gate (mirrors real adapter) — the
+        # wall-clock baseline is the packet's generation watermark when
+        # one is known, falling back to the startup baseline.
+        gate_generation = (
+            connection_generation
+            if connection_generation is not None
+            else self._connection_generation
+        )
         self._startup_backlog_packets_seen += 1
         window = self._config.startup_backlog_suppress_seconds
-        if window > 0 and self._adapter_start_epoch is not None:
+        baseline_epoch = self._receive_ready_epoch(gate_generation)
+        if window > 0 and baseline_epoch is not None:
             packet_time = extract_meshtastic_rx_time(packet)
-            adapter_start = datetime.fromtimestamp(
-                self._adapter_start_epoch, tz=timezone.utc
-            )
-            if should_suppress_startup_backlog(
-                packet_time, adapter_start, float(window)
-            ):
+            baseline = datetime.fromtimestamp(baseline_epoch, tz=timezone.utc)
+            if should_suppress_startup_backlog(packet_time, baseline, float(window)):
                 self._startup_backlog_packets_suppressed += 1
                 return
+
+        # Reconnect receive bootstrap gate (mirrors real adapter) — drops
+        # only age-unprovable packets while the generation window is live.
+        if self._check_reconnect_receive_bootstrap(packet, gate_generation):
+            return
 
         canonical = self._codec.decode(packet)
         await self.publish_inbound(canonical)
