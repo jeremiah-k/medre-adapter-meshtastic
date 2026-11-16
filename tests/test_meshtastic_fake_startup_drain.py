@@ -332,3 +332,24 @@ class TestFakeDrainArmingAndDiagnostics:
         assert deadline > time.monotonic()
 
         await adapter.stop()
+
+
+async def test_repeated_start_does_not_rearm_completed_drain() -> None:
+    """Like the real adapter, an already-running fake retains its baseline."""
+    config = make_meshtastic_config(startup_packet_drain_seconds=30.0)
+    adapter = FakeMeshtasticAdapter(config)
+    ctx = _make_context()
+    try:
+        await adapter.start(ctx)
+        await adapter.simulate_inbound(make_meshtastic_text_packet(text="backlog"))
+        _expire_drain_window(adapter)
+        assert adapter._check_startup_packet_drain(1) is False
+        baseline = adapter._adapter_start_epoch
+        await adapter.start(ctx)
+        assert adapter._adapter_start_epoch == baseline
+        assert adapter._startup_drain_deadline_monotonic is None
+        assert adapter.diagnostics()["startup_drain_packets_dropped"] == 1
+        await adapter.simulate_inbound(make_meshtastic_text_packet(text="live"))
+        ctx.publish_inbound.assert_awaited_once()
+    finally:
+        await adapter.stop()

@@ -264,7 +264,9 @@ class FakeMeshtasticAdapter(AdapterContract):
     # -- Lifecycle ----------------------------------------------------------
 
     async def start(self, ctx: AdapterContext) -> None:
-        """Store the context and mark the adapter as started."""
+        """Store the context and mark the adapter as started, idempotently."""
+        if self._started:
+            return
         self.ctx = ctx
         self._mark_started(ctx)
         self._started = True
