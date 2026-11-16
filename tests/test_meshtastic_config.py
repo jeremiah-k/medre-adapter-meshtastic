@@ -677,3 +677,13 @@ class TestMeshtasticConfigInvalid:
             MeshtasticConfigError, match="relay_prefix must be a str, got float"
         ):
             config.validate()
+
+
+@pytest.mark.parametrize(
+    "field", ["startup_packet_drain_seconds", "startup_backlog_suppress_seconds"]
+)
+@pytest.mark.parametrize("value", [10**400, -(10**400)])
+def test_startup_window_rejects_unrepresentable_integer(field: str, value: int) -> None:
+    config = MeshtasticConfig(adapter_id="mesh-1", **{field: value})
+    with pytest.raises(MeshtasticConfigError, match=f"{field} must be finite"):
+        config.validate()

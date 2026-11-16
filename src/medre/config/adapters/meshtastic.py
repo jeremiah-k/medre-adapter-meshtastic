@@ -265,40 +265,22 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"max_text_bytes must be >= 0, got {self.max_text_bytes}"
             )
-        if isinstance(self.startup_backlog_suppress_seconds, bool):
-            raise MeshtasticConfigError(
-                "startup_backlog_suppress_seconds must be an int or float, got bool"
-            )
-        if not isinstance(self.startup_backlog_suppress_seconds, (int, float)):
-            raise MeshtasticConfigError(
-                f"startup_backlog_suppress_seconds must be an int or float, "
-                f"got {type(self.startup_backlog_suppress_seconds).__name__}"
-            )
-        if not math.isfinite(self.startup_backlog_suppress_seconds):
-            raise MeshtasticConfigError(
-                "startup_backlog_suppress_seconds must be finite"
-            )
-        if self.startup_backlog_suppress_seconds < 0:
-            raise MeshtasticConfigError(
-                f"startup_backlog_suppress_seconds must be >= 0, "
-                f"got {self.startup_backlog_suppress_seconds}"
-            )
-        if isinstance(self.startup_packet_drain_seconds, bool):
-            raise MeshtasticConfigError(
-                "startup_packet_drain_seconds must be an int or float, got bool"
-            )
-        if not isinstance(self.startup_packet_drain_seconds, (int, float)):
-            raise MeshtasticConfigError(
-                f"startup_packet_drain_seconds must be an int or float, "
-                f"got {type(self.startup_packet_drain_seconds).__name__}"
-            )
-        if not math.isfinite(self.startup_packet_drain_seconds):
-            raise MeshtasticConfigError("startup_packet_drain_seconds must be finite")
-        if self.startup_packet_drain_seconds < 0:
-            raise MeshtasticConfigError(
-                f"startup_packet_drain_seconds must be >= 0, "
-                f"got {self.startup_packet_drain_seconds}"
-            )
+        for key, value in (
+            ("startup_backlog_suppress_seconds", self.startup_backlog_suppress_seconds),
+            ("startup_packet_drain_seconds", self.startup_packet_drain_seconds),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise MeshtasticConfigError(
+                    f"{key} must be an int or float, got {type(value).__name__}"
+                )
+            try:
+                finite = math.isfinite(value)
+            except OverflowError:
+                finite = False
+            if not finite:
+                raise MeshtasticConfigError(f"{key} must be finite")
+            if value < 0:
+                raise MeshtasticConfigError(f"{key} must be >= 0, got {value}")
         if isinstance(self.queue_send_max_attempts, bool):
             raise MeshtasticConfigError(
                 "queue_send_max_attempts must be an int, got bool"
