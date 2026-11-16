@@ -73,11 +73,15 @@ class TestMeshtasticInboundToFakeOutbound:
         """Full bridge: MeshtasticAdapter.simulate_inbound -> pipeline ->
         FakeMeshtasticAdapter.deliver."""
         mesh_config = MeshtasticConfig(
-            adapter_id="mesh-real-in", connection_type="fake"
+            adapter_id="mesh-real-in",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
-        fake_config = MeshtasticConfig(adapter_id="fake-out")
+        fake_config = MeshtasticConfig(
+            adapter_id="fake-out", startup_packet_drain_seconds=0
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -95,7 +99,11 @@ class TestMeshtasticInboundToFakeOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "fake-out": MeshtasticConfig(adapter_id="fake-out", relay_prefix="")
+                    "fake-out": MeshtasticConfig(
+                        adapter_id="fake-out",
+                        relay_prefix="",
+                        startup_packet_drain_seconds=0,
+                    )
                 }
             ),
             priority=50,
@@ -142,11 +150,15 @@ class TestMeshtasticInboundToFakeOutbound:
         """Inbound native ref from real MeshtasticAdapter is persisted in
         storage through the pipeline."""
         mesh_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-in2", connection_type="fake"
+            adapter_id="bridge-mesh-in2",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
-        fake_config = MeshtasticConfig(adapter_id="bridge-fake-out2")
+        fake_config = MeshtasticConfig(
+            adapter_id="bridge-fake-out2", startup_packet_drain_seconds=0
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -164,7 +176,9 @@ class TestMeshtasticInboundToFakeOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-fake-out2": MeshtasticConfig(adapter_id="bridge-fake-out2")
+                    "bridge-fake-out2": MeshtasticConfig(
+                        adapter_id="bridge-fake-out2", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,
@@ -211,11 +225,15 @@ class TestMeshtasticInboundToFakeOutbound:
         """Outbound native ref from FakeMeshtasticAdapter (which generates
         deterministic IDs) is persisted after delivery."""
         mesh_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-in3", connection_type="fake"
+            adapter_id="bridge-mesh-in3",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
-        fake_config = MeshtasticConfig(adapter_id="bridge-fake-out3")
+        fake_config = MeshtasticConfig(
+            adapter_id="bridge-fake-out3", startup_packet_drain_seconds=0
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -233,7 +251,9 @@ class TestMeshtasticInboundToFakeOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-fake-out3": MeshtasticConfig(adapter_id="bridge-fake-out3")
+                    "bridge-fake-out3": MeshtasticConfig(
+                        adapter_id="bridge-fake-out3", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,
@@ -280,11 +300,15 @@ class TestMeshtasticInboundToFakeOutbound:
         """Pipeline records a 'sent' delivery receipt for successful bridge
         delivery to the fake adapter."""
         mesh_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-receipt", connection_type="fake"
+            adapter_id="bridge-mesh-receipt",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
-        fake_config = MeshtasticConfig(adapter_id="bridge-fake-receipt")
+        fake_config = MeshtasticConfig(
+            adapter_id="bridge-fake-receipt", startup_packet_drain_seconds=0
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -303,7 +327,8 @@ class TestMeshtasticInboundToFakeOutbound:
             MeshtasticRenderer(
                 configs={
                     "bridge-fake-receipt": MeshtasticConfig(
-                        adapter_id="bridge-fake-receipt"
+                        adapter_id="bridge-fake-receipt",
+                        startup_packet_drain_seconds=0,
                     )
                 }
             ),
@@ -351,7 +376,9 @@ class TestMeshtasticInboundToFakeOutbound:
         """Inbound packet metadata (sender, channel, packet_id) maps
         consistently from raw packet through codec to stored event."""
         mesh_config = MeshtasticConfig(
-            adapter_id="bridge-meta-in", connection_type="fake"
+            adapter_id="bridge-meta-in",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
@@ -418,11 +445,15 @@ class TestMeshtasticInboundToFakeOutbound:
         """A message on channel 5 is routed and its channel metadata
         preserved through the bridge."""
         mesh_config = MeshtasticConfig(
-            adapter_id="bridge-ch-in", connection_type="fake"
+            adapter_id="bridge-ch-in",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
-        fake_config = MeshtasticConfig(adapter_id="bridge-ch-out")
+        fake_config = MeshtasticConfig(
+            adapter_id="bridge-ch-out", startup_packet_drain_seconds=0
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -439,7 +470,11 @@ class TestMeshtasticInboundToFakeOutbound:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"bridge-ch-out": MeshtasticConfig(adapter_id="bridge-ch-out")}
+                configs={
+                    "bridge-ch-out": MeshtasticConfig(
+                        adapter_id="bridge-ch-out", startup_packet_drain_seconds=0
+                    )
+                }
             ),
             priority=50,
         )
@@ -487,11 +522,15 @@ class TestMeshtasticInboundToFakeOutbound:
         """Reply relations from Meshtastic replyId flow through the bridge
         and are stored in the event."""
         mesh_config = MeshtasticConfig(
-            adapter_id="bridge-reply-in", connection_type="fake"
+            adapter_id="bridge-reply-in",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
-        fake_config = MeshtasticConfig(adapter_id="bridge-reply-out")
+        fake_config = MeshtasticConfig(
+            adapter_id="bridge-reply-out", startup_packet_drain_seconds=0
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -509,7 +548,9 @@ class TestMeshtasticInboundToFakeOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-reply-out": MeshtasticConfig(adapter_id="bridge-reply-out")
+                    "bridge-reply-out": MeshtasticConfig(
+                        adapter_id="bridge-reply-out", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,
@@ -596,11 +637,15 @@ class TestFakeInboundToMeshtasticOutbound:
     ) -> None:
         """Fake adapter inbound -> pipeline -> MeshtasticAdapter.deliver()
         enqueues payload locally."""
-        fake_in_config = MeshtasticConfig(adapter_id="bridge-fake-in")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="bridge-fake-in", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-out", connection_type="fake"
+            adapter_id="bridge-mesh-out",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -619,7 +664,9 @@ class TestFakeInboundToMeshtasticOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-mesh-out": MeshtasticConfig(adapter_id="bridge-mesh-out")
+                    "bridge-mesh-out": MeshtasticConfig(
+                        adapter_id="bridge-mesh-out", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,
@@ -672,7 +719,9 @@ class TestFakeInboundToMeshtasticOutbound:
         """MeshtasticAdapter.deliver() returns AdapterHandoffResult with
         native_message_id=None and note='locally enqueued'."""
         mesh_config = MeshtasticConfig(
-            adapter_id="bridge-enqueue-id", connection_type="fake"
+            adapter_id="bridge-enqueue-id",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
         await mesh_adapter.start(
@@ -707,11 +756,15 @@ class TestFakeInboundToMeshtasticOutbound:
     ) -> None:
         """Pipeline records a ``queued`` receipt for Meshtastic local
         admission, but no outbound native ref before transport hand-off."""
-        fake_in_config = MeshtasticConfig(adapter_id="bridge-fake-nref")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="bridge-fake-nref", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-nref", connection_type="fake"
+            adapter_id="bridge-mesh-nref",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -730,7 +783,9 @@ class TestFakeInboundToMeshtasticOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-mesh-nref": MeshtasticConfig(adapter_id="bridge-mesh-nref")
+                    "bridge-mesh-nref": MeshtasticConfig(
+                        adapter_id="bridge-mesh-nref", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,
@@ -796,11 +851,15 @@ class TestFakeInboundToMeshtasticOutbound:
     ) -> None:
         """After pipeline delivery to MeshtasticAdapter, queue_health
         reports the pending item."""
-        fake_in_config = MeshtasticConfig(adapter_id="bridge-fake-qh")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="bridge-fake-qh", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-qh", connection_type="fake"
+            adapter_id="bridge-mesh-qh",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -819,7 +878,9 @@ class TestFakeInboundToMeshtasticOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-mesh-qh": MeshtasticConfig(adapter_id="bridge-mesh-qh")
+                    "bridge-mesh-qh": MeshtasticConfig(
+                        adapter_id="bridge-mesh-qh", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,
@@ -876,11 +937,15 @@ class TestFakeInboundToMeshtasticOutbound:
     ) -> None:
         """MeshtasticRenderer is selected for the real MeshtasticAdapter
         target through the pipeline's platform registry, not TextRenderer."""
-        fake_in_config = MeshtasticConfig(adapter_id="bridge-fake-rend")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="bridge-fake-rend", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-rend", connection_type="fake"
+            adapter_id="bridge-mesh-rend",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -899,7 +964,9 @@ class TestFakeInboundToMeshtasticOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-mesh-rend": MeshtasticConfig(adapter_id="bridge-mesh-rend")
+                    "bridge-mesh-rend": MeshtasticConfig(
+                        adapter_id="bridge-mesh-rend", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,
@@ -959,11 +1026,15 @@ class TestFakeInboundToMeshtasticOutbound:
         self, temp_storage: SQLiteStorage
     ) -> None:
         """RuntimeAccounting counters increment when the bridge delivers."""
-        fake_in_config = MeshtasticConfig(adapter_id="bridge-fake-acc")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="bridge-fake-acc", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="bridge-mesh-acc", connection_type="fake"
+            adapter_id="bridge-mesh-acc",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -982,7 +1053,9 @@ class TestFakeInboundToMeshtasticOutbound:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "bridge-mesh-acc": MeshtasticConfig(adapter_id="bridge-mesh-acc")
+                    "bridge-mesh-acc": MeshtasticConfig(
+                        adapter_id="bridge-mesh-acc", startup_packet_drain_seconds=0
+                    )
                 }
             ),
             priority=50,

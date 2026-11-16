@@ -175,7 +175,11 @@ async def test_above_cap_bursts_stage_exact_capacity_and_reuse_it(
     holder = _new_holder()
     reports: list[ProducerPressureReport] = []
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id=f"sustained-burst-{burst}", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id=f"sustained-burst-{burst}",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, _make_holder_publisher(holder), reports)
     try:
@@ -252,7 +256,11 @@ async def test_sustained_imbalance_keeps_exact_invariants_at_every_boundary() ->
 
     reports: list[ProducerPressureReport] = []
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="sustained-imbalance", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="sustained-imbalance",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, publish, reports)
 
@@ -409,7 +417,11 @@ async def test_stop_while_saturated_cancels_staged_work_and_restart_is_full() ->
 
     reports: list[ProducerPressureReport] = []
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="sustained-stop", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="sustained-stop",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, publish, reports)
     pool_before = adapter._ingress_reservations
@@ -544,7 +556,11 @@ async def test_stop_drain_coalesces_queued_cancellations_under_load() -> None:
 
     reports: list[ProducerPressureReport] = []
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="sustained-drain", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="sustained-drain",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, publish, reports)
 
@@ -653,7 +669,9 @@ async def test_burst_memory_grows_sublinearly_and_reader_acquire_stays_bounded(
         reports: list[ProducerPressureReport] = []
         adapter = MeshtasticAdapter(
             MeshtasticConfig(
-                adapter_id=f"sustained-evidence-{size}", connection_type="fake"
+                adapter_id=f"sustained-evidence-{size}",
+                connection_type="fake",
+                startup_packet_drain_seconds=0,
             )
         )
         await _start(adapter, publisher, reports)

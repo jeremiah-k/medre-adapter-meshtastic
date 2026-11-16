@@ -332,6 +332,11 @@ class MeshtasticAdapter(AdapterContract):
         self._startup_backlog_packets_seen: int = 0
         self._startup_backlog_packets_suppressed: int = 0
 
+        # Startup packet drain — content-independent drop window armed at
+        # each successful start; see _check_startup_packet_drain.
+        self._startup_drain_deadline_monotonic: float | None = None
+        self._startup_drain_packets_dropped: int = 0
+
         # Outbound gate suppression counter
         self._outbound_gate_suppressed: int = 0
 
@@ -434,6 +439,16 @@ class MeshtasticAdapter(AdapterContract):
         self._adapter_start_epoch = time.time()
         self._startup_backlog_packets_seen = 0
         self._startup_backlog_packets_suppressed = 0
+
+        # Arm this session's startup packet drain.  The window is
+        # content-independent: relay-classified packets arriving while it is
+        # open are dropped without consulting rxTime.  A window of 0 leaves
+        # the deadline unarmed for the whole session.
+        drain_window = float(self._config.startup_packet_drain_seconds)
+        self._startup_drain_deadline_monotonic = (
+            time.monotonic() + drain_window if drain_window > 0 else None
+        )
+        self._startup_drain_packets_dropped = 0
 
         self._loop = asyncio.get_running_loop()
         self._drain_task = asyncio.create_task(self._process_queue())
@@ -850,6 +865,66 @@ class MeshtasticAdapter(AdapterContract):
         except Exception:
             return None  # Non-critical enrichment; names are best-effort
 
+    def _check_startup_packet_drain(self, packet_id: Any) -> bool:
+        """Check whether a relay-classified packet falls inside the startup drain window.
+
+        The window is armed at each successful :meth:`start` and is
+        content-independent: while ``time.monotonic()`` is before the
+        deadline, every relay-classified packet is dropped without
+        consulting ``rxTime``.  This covers the backlog radios dump from
+        their FROMRADIO queue on connect (BLE in particular), including
+        packets whose ``rxTime`` is missing, malformed, or skewed by an
+        unsynced node clock — cases the rxTime-based startup-backlog
+        suppression cannot judge.
+
+        Expiry is detected lazily on evaluation: the first check at or
+        after the deadline clears the window, emits a single INFO
+        completion line with the dropped count, and the window stays
+        closed for the rest of the session.  A configured window of ``0``
+        leaves the deadline unarmed.  The per-packet DEBUG drop log follows
+        the startup-backlog suppression log format.
+
+        Parameters
+        ----------
+        packet_id:
+            The packet ID for safe logging.
+
+        Returns
+        -------
+        bool
+            ``True`` while the drain window is open (the packet should be
+            dropped); ``False`` once the window has expired or is disabled.
+        """
+        deadline = self._startup_drain_deadline_monotonic
+        if deadline is None:
+            return False
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            # Lazy expiry: clear the deadline and report the drain outcome
+            # exactly once, independent of packet arrival patterns.
+            self._startup_drain_deadline_monotonic = None
+            if self.ctx is not None:
+                self.ctx.logger.info(
+                    "MeshtasticAdapter %s: startup packet drain window ended - "
+                    "accepting packets (dropped=%d)",
+                    self.adapter_id,
+                    self._startup_drain_packets_dropped,
+                )
+            return False
+
+        if self.ctx is not None:
+            self.ctx.logger.debug(
+                "MeshtasticAdapter %s: startup packet drain dropped "
+                "transport=meshtastic packet_id=%s remaining=%.3fs window=%s",
+                self.adapter_id,
+                packet_id,
+                remaining,
+                self._config.startup_packet_drain_seconds,
+            )
+        self._startup_drain_packets_dropped += 1
+        return True
+
     def _check_startup_backlog_suppress(
         self, packet: dict[str, Any], packet_id: Any
     ) -> bool:
@@ -951,6 +1026,13 @@ class MeshtasticAdapter(AdapterContract):
 
             # Only relay packets proceed to decode and publish
             if classification.action != "relay":
+                return
+
+            # Startup packet drain gate — content-independent, evaluated
+            # before the rxTime-based suppression check, which remains as
+            # defense-in-depth behind it.  Drain-dropped packets do not
+            # enter the rxTime counters.
+            if self._check_startup_packet_drain(classification.packet_id):
                 return
 
             # Startup backlog suppression gate
@@ -1182,6 +1264,13 @@ class MeshtasticAdapter(AdapterContract):
         if classification.action != "relay":
             return
 
+        # Startup packet drain gate — content-independent, evaluated before
+        # the rxTime-based suppression check, which remains as
+        # defense-in-depth behind it.  Drain-dropped packets do not enter
+        # the rxTime counters.
+        if self._check_startup_packet_drain(classification.packet_id):
+            return
+
         # Startup backlog suppression gate
         self._startup_backlog_packets_seen += 1
         if self._check_startup_backlog_suppress(packet, classification.packet_id):
@@ -1262,6 +1351,10 @@ class MeshtasticAdapter(AdapterContract):
             "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
             "startup_backlog_suppress_seconds": self._config.startup_backlog_suppress_seconds,
             "adapter_start_epoch": self._adapter_start_epoch,
+            # Startup packet drain — packets dropped by the content-
+            # independent connect window before reaching the rxTime gate.
+            "startup_drain_packets_dropped": self._startup_drain_packets_dropped,
+            "startup_packet_drain_seconds": self._config.startup_packet_drain_seconds,
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,

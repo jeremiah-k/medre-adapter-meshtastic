@@ -514,6 +514,8 @@ class TestStartupBacklogDiagnostics:
         assert "startup_backlog_packets_suppressed" in diag
         assert "startup_backlog_suppress_seconds" in diag
         assert "adapter_start_epoch" in diag
+        assert "startup_drain_packets_dropped" in diag
+        assert "startup_packet_drain_seconds" in diag
 
         await adapter.stop()
 
@@ -543,6 +545,8 @@ class TestStartupBacklogDiagnostics:
         assert diag["startup_backlog_suppress_seconds"] == 10.0
         assert diag["adapter_start_epoch"] is not None
         assert diag["adapter_start_epoch"] > 0
+        assert diag["startup_drain_packets_dropped"] == 0
+        assert diag["startup_packet_drain_seconds"] == 0.0
 
         await adapter.stop()
 

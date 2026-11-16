@@ -13,8 +13,18 @@ from medre.config.adapters.meshtastic import MeshtasticConfig
 
 
 def make_meshtastic_config(**overrides) -> MeshtasticConfig:
-    """Build a MeshtasticConfig with sensible defaults."""
-    defaults = dict(adapter_id="mesh-1")
+    """Build a MeshtasticConfig with sensible defaults.
+
+    ``startup_packet_drain_seconds`` defaults to ``0`` here — the
+    production default is ``15.0`` — so tests exercising rxTime-based
+    startup backlog suppression, delivery, or relaying are not dropped by
+    the content-independent startup drain window.  Drain tests pass the
+    window explicitly.
+    """
+    defaults = dict(
+        adapter_id="mesh-1",
+        startup_packet_drain_seconds=0.0,
+    )
     defaults.update(overrides)
     return MeshtasticConfig(**defaults)
 

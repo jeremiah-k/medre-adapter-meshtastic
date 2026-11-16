@@ -115,7 +115,11 @@ async def test_default_cap_stages_exactly_capacity_and_counts_overflow() -> None
 
     reports: list[ProducerPressureReport] = []
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="ingress-boundary", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="ingress-boundary",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, publish, reports)
     try:
@@ -178,6 +182,7 @@ async def test_overflow_warnings_are_coalesced_without_losing_pressure(caplog) -
             adapter_id="ingress-warning-cap",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish, reports)
@@ -226,6 +231,7 @@ async def test_capacity_refusal_skips_node_lookup_and_codec(monkeypatch) -> None
             adapter_id="ingress-no-decode",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish)
@@ -262,6 +268,7 @@ async def test_decode_failure_releases_prescheduling_reservation(
             adapter_id="ingress-decode-fail",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish)
@@ -292,6 +299,7 @@ async def test_failed_scheduling_closes_coroutine_and_releases_slot(
             adapter_id="ingress-loop-race",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
 
@@ -329,6 +337,7 @@ async def test_missing_loop_releases_slot_before_return() -> None:
             adapter_id="ingress-no-loop",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
 
@@ -368,7 +377,11 @@ async def test_below_cap_burst_stages_everything_and_drains_cleanly() -> None:
 
     reports: list[ProducerPressureReport] = []
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="ingress-below-cap", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="ingress-below-cap",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, publish, reports)
     try:
@@ -419,6 +432,7 @@ async def test_completed_publication_returns_its_reservation() -> None:
             adapter_id="ingress-refill",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish, reports)
@@ -467,6 +481,7 @@ async def test_failed_publication_returns_its_reservation() -> None:
             adapter_id="ingress-error",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish)
@@ -516,6 +531,7 @@ async def test_stop_preserves_admission_uncertainty_and_restart_gets_full_capaci
             adapter_id="ingress-stop",
             connection_type="fake",
             max_pending_ingress_callbacks=2,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish, reports)
@@ -587,6 +603,7 @@ async def test_reconnect_generation_releases_stale_reservations() -> None:
             adapter_id="ingress-reconnect",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish, reports)
@@ -628,7 +645,11 @@ async def test_absent_producer_sink_still_bounds_and_counts() -> None:
         published.add(event.event_id)
 
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="ingress-no-sink", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="ingress-no-sink",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, publish)
     try:
@@ -672,6 +693,7 @@ async def test_ack_and_routing_callbacks_are_never_throttled() -> None:
             adapter_id="ingress-ack-boundary",
             connection_type="fake",
             max_pending_ingress_callbacks=1,
+            startup_packet_drain_seconds=0,
         )
     )
     await _start(adapter, publish, reports)
@@ -732,7 +754,11 @@ async def test_stop_fences_reader_callbacks_with_pending_publications(
             exited.set()
 
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="ingress-shutdown", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="ingress-shutdown",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
     await _start(adapter, publish, reports)
     try:
@@ -789,7 +815,9 @@ async def test_missing_report_type_keeps_local_overflow_accounting(monkeypatch):
 
     monkeypatch.setattr(module, "ProducerPressureReport", None)
     reports = []
-    adapter = MeshtasticAdapter(MeshtasticConfig(adapter_id="old-core"))
+    adapter = MeshtasticAdapter(
+        MeshtasticConfig(adapter_id="old-core", startup_packet_drain_seconds=0)
+    )
     await _start(adapter, lambda event: None, reports)
     try:
         adapter._record_ingress_overflow()
@@ -804,7 +832,9 @@ async def test_unstarted_future_cancellation_reports_only_known_pre_admission():
     import concurrent.futures
     import threading
 
-    adapter = MeshtasticAdapter(MeshtasticConfig(adapter_id="unstarted"))
+    adapter = MeshtasticAdapter(
+        MeshtasticConfig(adapter_id="unstarted", startup_packet_drain_seconds=0)
+    )
     reports = []
     await _start(adapter, lambda event: None, reports)
     try:
