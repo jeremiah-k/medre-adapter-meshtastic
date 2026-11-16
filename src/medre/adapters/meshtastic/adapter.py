@@ -334,6 +334,7 @@ class MeshtasticAdapter(AdapterContract):
 
         # Startup packet drain — content-independent drop window armed at
         # first receive-ready connection; see _check_startup_packet_drain.
+        self._startup_drain_lock = threading.Lock()
         self._startup_drain_deadline_monotonic: float | None = None
         self._startup_drain_packets_dropped: int = 0
 
@@ -411,8 +412,9 @@ class MeshtasticAdapter(AdapterContract):
         self._adapter_start_epoch = None
         self._startup_backlog_packets_seen = 0
         self._startup_backlog_packets_suppressed = 0
-        self._startup_drain_deadline_monotonic = None
-        self._startup_drain_packets_dropped = 0
+        with self._startup_drain_lock:
+            self._startup_drain_deadline_monotonic = None
+            self._startup_drain_packets_dropped = 0
 
         # Create session and delegate lifecycle
         self._session = MeshtasticSession(
@@ -829,7 +831,7 @@ class MeshtasticAdapter(AdapterContract):
                 classification.packet_id,
             )
         elif action == "relay":
-            # Preview text from the packet's decoded text for relay log
+            # Log eligibility after startup gates, not delivery confirmation.
             _logger.info(
                 "MeshtasticAdapter %s: packet relayed packet_id=%s from_id=%s",
                 self.adapter_id,
@@ -875,9 +877,10 @@ class MeshtasticAdapter(AdapterContract):
             return
         self._adapter_start_epoch = time.time()
         window = float(self._config.startup_packet_drain_seconds)
-        self._startup_drain_deadline_monotonic = (
-            time.monotonic() + window if window > 0 else None
-        )
+        with self._startup_drain_lock:
+            self._startup_drain_deadline_monotonic = (
+                time.monotonic() + window if window > 0 else None
+            )
 
     def _check_startup_packet_drain(self, packet_id: Any) -> bool:
         """Check whether a relay-classified packet falls inside the startup drain window.
@@ -909,26 +912,33 @@ class MeshtasticAdapter(AdapterContract):
             ``True`` while the drain window is open (the packet should be
             dropped); ``False`` once the window has expired or is disabled.
         """
-        deadline = self._startup_drain_deadline_monotonic
-        if deadline is None:
-            return False
+        # Both the SDK reader and the loop's simulated ingress can evaluate
+        # this gate. Retire the deadline and capture the count atomically;
+        # log outside the lock to avoid blocking the other ingress path.
+        with self._startup_drain_lock:
+            deadline = self._startup_drain_deadline_monotonic
+            if deadline is None:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._startup_drain_deadline_monotonic = None
+            else:
+                self._startup_drain_packets_dropped += 1
+            dropped = self._startup_drain_packets_dropped
 
-        remaining = deadline - time.monotonic()
+        ctx = self.ctx
         if remaining <= 0:
-            # Lazy expiry: clear the deadline and report the drain outcome
-            # exactly once, independent of packet arrival patterns.
-            self._startup_drain_deadline_monotonic = None
-            if self.ctx is not None:
-                self.ctx.logger.info(
+            if ctx is not None:
+                ctx.logger.info(
                     "MeshtasticAdapter %s: startup packet drain window ended - "
                     "accepting packets (dropped=%d)",
                     self.adapter_id,
-                    self._startup_drain_packets_dropped,
+                    dropped,
                 )
             return False
 
-        if self.ctx is not None:
-            self.ctx.logger.debug(
+        if ctx is not None:
+            ctx.logger.debug(
                 "MeshtasticAdapter %s: startup packet drain dropped "
                 "transport=meshtastic packet_id=%s remaining=%.3fs window=%s",
                 self.adapter_id,
@@ -936,7 +946,6 @@ class MeshtasticAdapter(AdapterContract):
                 remaining,
                 self._config.startup_packet_drain_seconds,
             )
-        self._startup_drain_packets_dropped += 1
         return True
 
     def _check_startup_backlog_suppress(
@@ -1026,7 +1035,8 @@ class MeshtasticAdapter(AdapterContract):
             own_node_id = session.node_id if session is not None else None
             classification = self._classifier.classify(packet, own_node_id=own_node_id)
             self._increment_classifier_counters(classification)
-            self._log_classification(classification)
+            if classification.action != "relay":
+                self._log_classification(classification)
 
             # Native routing results (ACK/NAK) are classified as ack or
             # deferred routing packets; offer them to send correlation
@@ -1054,6 +1064,8 @@ class MeshtasticAdapter(AdapterContract):
             if self._check_startup_backlog_suppress(packet, classification.packet_id):
                 self._startup_backlog_packets_suppressed += 1
                 return
+
+            self._log_classification(classification)
 
             # Reserve immediately after the relay and startup-backlog gates.
             # Refused packets never pay for node enrichment or codec decode
@@ -1262,7 +1274,8 @@ class MeshtasticAdapter(AdapterContract):
             own_node_id=(session.node_id if session is not None else None),
         )
         self._increment_classifier_counters(classification)
-        self._log_classification(classification)
+        if classification.action != "relay":
+            self._log_classification(classification)
 
         # Same send-correlation hook as the live callback path so tests
         # exercising simulate_inbound observe identical behavior.
@@ -1290,6 +1303,8 @@ class MeshtasticAdapter(AdapterContract):
         if self._check_startup_backlog_suppress(packet, classification.packet_id):
             self._startup_backlog_packets_suppressed += 1
             return
+
+        self._log_classification(classification)
 
         # Enrich with node info (same path as _on_packet)
         node_info = self._enrich_with_node_info(packet)

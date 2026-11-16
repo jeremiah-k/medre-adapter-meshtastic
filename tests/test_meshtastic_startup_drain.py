@@ -655,3 +655,70 @@ async def test_retired_initial_connection_hook_cannot_rearm_restart() -> None:
         assert adapter._startup_drain_deadline_monotonic is None
     finally:
         await adapter.stop()
+
+
+@pytest.mark.parametrize("via_callback", [False, True])
+async def test_startup_gates_do_not_log_a_relay(via_callback, caplog) -> None:
+    """Both admission paths must log only actually eligible classifications."""
+    adapter = MeshtasticAdapter(
+        make_meshtastic_config(startup_packet_drain_seconds=15.0)
+    )
+    ctx = _make_context()
+
+    async def submit(packet):
+        if via_callback:
+            adapter._on_packet(packet)
+        else:
+            await adapter.simulate_inbound(packet)
+
+    try:
+        await adapter.start(ctx)
+        with caplog.at_level(logging.DEBUG, logger="test.mesh-drain"):
+            await submit(make_meshtastic_text_packet(text="drained", packet_id=1))
+            assert "startup packet drain dropped" in caplog.text
+            assert "packet relayed" not in caplog.text
+            _expire_drain_window(adapter)
+            stale = make_meshtastic_text_packet(text="stale", packet_id=2)
+            stale["rxTime"] = adapter._adapter_start_epoch - 60
+            await submit(stale)
+            assert "startup backlog suppressed" in caplog.text
+            assert "packet relayed" not in caplog.text
+            await submit(make_meshtastic_text_packet(text="live", packet_id=3))
+            assert await wait_until(lambda: ctx.publish_inbound.await_count == 1)
+            assert caplog.text.count("packet relayed") == 1
+            assert "packet relayed packet_id=3" in caplog.text
+        assert adapter.diagnostics()["classifier_packets_relayed"] == 3
+        assert adapter.diagnostics()["startup_drain_packets_dropped"] == 1
+        assert adapter.diagnostics()["startup_backlog_packets_suppressed"] == 1
+    finally:
+        await adapter.stop()
+
+
+async def test_concurrent_gate_expiry_reports_once(caplog) -> None:
+    """Reader-thread and loop-side checks share one completion transition."""
+    adapter = MeshtasticAdapter(
+        make_meshtastic_config(startup_packet_drain_seconds=15.0)
+    )
+    ctx = _make_context()
+    try:
+        await adapter.start(ctx)
+        dropped = await asyncio.gather(
+            *(
+                asyncio.to_thread(adapter._check_startup_packet_drain, i)
+                for i in range(8)
+            )
+        )
+        assert all(dropped)
+        _expire_drain_window(adapter)
+        with caplog.at_level(logging.INFO, logger="test.mesh-drain"):
+            results = await asyncio.gather(
+                *(
+                    asyncio.to_thread(adapter._check_startup_packet_drain, i)
+                    for i in range(8)
+                )
+            )
+        assert not any(results)
+        assert caplog.text.count("startup packet drain window ended") == 1
+        assert "dropped=8" in caplog.text
+    finally:
+        await adapter.stop()
