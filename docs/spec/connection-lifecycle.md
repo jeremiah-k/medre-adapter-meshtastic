@@ -90,11 +90,12 @@ tolerance. The semantics per timestamp class are explicit:
 
 - A valid `rxTime` older than the current generation's cutoff is suppressed as
   queue backlog, permanently within that generation.
-- A valid `rxTime` at or after the cutoff is published immediately, including
-  while the monotonic window below is open; a reconnect never spends a blind
-  content-independent drain on live packets.
+- On a replacement generation, a valid `rxTime` at or after the cutoff is
+  eligible for relay immediately, including while the monotonic window below
+  is open, subject to ordinary admission and generation ownership. A reconnect
+  never spends a blind content-independent drain on live packets.
 - A missing or malformed `rxTime` cannot prove age. During the short monotonic
-  bootstrap window armed on every receive-ready installation after the first,
+  bootstrap window armed on every installation after successful initial setup,
   such packets are dropped and counted; after lazy expiry of the window they
   relay, because their age cannot be judged. This bounds the unprovable-case
   loss to a few seconds per reconnect episode instead of leaving queue backlog
@@ -109,23 +110,30 @@ tolerance. The semantics per timestamp class are explicit:
   skew tolerance; the same failure class exists at the initial connection.
 
 Repeated reconnects record a fresh watermark and arm a fresh window per
-generation; loss stays bounded per episode. Failed connection attempts advance
-the generation without producing receive-ready watermarks that any deliverable
-packet can reference; the next successful installation re-arms its own
-baseline. A pending degraded start installs no client and spends neither the
-watermark nor any window. Stop and start reset the watermark history and
+generation; loss stays bounded per episode. A constructor failure records no
+watermark. An activation whose callback subscription or node refresh fails can
+record a watermark, but the failed generation is retired and cannot authorize
+subsequent publication. A retry before initial setup succeeds remains an initial
+attempt and receives the initial drain, not a reconnect bootstrap. A pending
+degraded start installs no client and spends neither the watermark nor any
+window. Stop and start reset the watermark history and
 evidence counters with the rest of the connect-window state.
 
 The bootstrap window is fixed at five seconds and shares the startup drain's
 operator opt-out: `startup_packet_drain_seconds == 0` disables the window as
 well as the initial drain, keeping the connect-window drop family on one
 switch. No new configuration key is introduced. The initial-connect startup
-drain itself is unchanged: armed once before the first receive subscription,
-content-independent, and deliberately not re-armed on reconnects.
+drain remains content-independent and is armed before the first receive
+subscription (including initial setup retries). It is retired on a transparent
+reconnect even if its deadline has not elapsed; it is never re-armed on a
+replacement generation.
 
-Each window expiry emits one INFO completion line with the window's drop count;
-each in-window drop logs at DEBUG with the suppression log format. Diagnostics
-add `receive_ready_generation` (latest watermark generation), and
+On the first relay packet that reaches its gate at or after expiry, the owning
+generation emits one INFO completion line with the window's drop count. An idle
+or retired generation need not emit a completion summary. Each in-window drop
+logs at DEBUG with the suppression log format. Diagnostics add
+`receive_ready_generation` (latest recorded activation watermark, not a health
+or successful-subscription claim),
 `reconnect_backlog_packets_dropped` (cumulative unprovable-age drops), and
 `reconnect_receive_bootstrap_seconds` (the fixed window length). A late hook
 from a retired adapter lifecycle MUST NOT record a watermark or arm a window.

@@ -137,16 +137,15 @@ class MeshtasticSession:
         Failed callback setup may invoke it again on the next attempt.
         Later reconnects do not invoke it after successful initial setup.
     on_connection_ready:
-        Optional synchronous hook invoked on EVERY successful client
-        installation, including transparent reconnects.  It runs on the
-        session loop under the client-state lock, after the new
+        Optional synchronous hook invoked on every client activation attempt,
+        including transparent reconnects, before subscription succeeds. It runs
+        on the session loop under the client-state lock, after the new
         generation is published and before receive callbacks can be
         subscribed or dispatched, and receives the new connection
         generation and whether initial setup is still pending (including a
         retry after failed initial subscription). The hook must be fast,
-        non-blocking, and must not
-        raise; a raising hook fails the installation like any other
-        setup error.
+        non-blocking, and must not raise; a raising hook fails the
+        installation like any other setup error.
     """
 
     __slots__ = (

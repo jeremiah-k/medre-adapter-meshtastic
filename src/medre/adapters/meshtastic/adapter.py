@@ -937,17 +937,15 @@ class MeshtasticAdapter(AdapterContract):
     ) -> None:
         """Record the receive-ready watermark of one connection generation.
 
-        Invoked by the session under its client-state lock on EVERY
-        successful client installation — the first receive-ready connection
-        and every transparent reconnect alike — before receive callbacks of
-        the new client can subscribe or dispatch.  The wall-clock epoch is
-        the freshness baseline the ``rxTime`` gate judges this generation's
-        packets against; see :meth:`_check_startup_backlog_suppress`.
+        Invoked by the session under its client-state lock on each client
+        activation attempt, before receive callbacks of the new client can
+        subscribe or dispatch. The wall-clock epoch is the freshness baseline
+        the ``rxTime`` gate judges this generation's packets against; see :meth:`_check_startup_backlog_suppress`.
 
         A late hook from a retired adapter lifecycle must not record a
-        watermark.  Installations after the first also arm the
-        generation-scoped reconnect bootstrap window (monotonic), unless the
-        operator disabled the connect-window drop family with
+        watermark. Installations after successful initial setup retire the
+        initial drain and arm the generation-scoped reconnect bootstrap window
+        (monotonic), unless the operator disabled the connect-window drop family with
         ``startup_packet_drain_seconds == 0``.
         """
         if epoch != self._health_epoch or self.ctx is None:
@@ -1006,8 +1004,8 @@ class MeshtasticAdapter(AdapterContract):
 
         Every receive-ready installation after successful initial setup
         (a transparent reconnect) arms a short monotonic window scoped to its
-        connection generation.  While the window is open, a relay-classified packet on
-        that generation without a usable ``rxTime`` is dropped: the radio
+        connection generation. While the window is open, a relay-classified
+        packet on that generation without a usable ``rxTime`` is dropped: the radio
         may be emptying its FROMRADIO queue of pre-reconnect backlog and a
         packet without a timestamp cannot prove it is not part of that
         backlog.  Packets WITH a usable ``rxTime`` are never dropped by
@@ -1103,8 +1101,7 @@ class MeshtasticAdapter(AdapterContract):
         completion line with the dropped count, and the window stays
         closed for the rest of the session. A transparent reconnect retires
         any remaining initial drain without an expiry summary. A configured
-        window of ``0``
-        leaves the deadline unarmed.  The per-packet DEBUG drop log follows
+        window of ``0`` leaves the deadline unarmed.  The per-packet DEBUG drop log follows
         the startup-backlog suppression log format.
 
         Parameters

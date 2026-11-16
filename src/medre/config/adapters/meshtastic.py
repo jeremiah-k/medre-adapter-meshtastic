@@ -56,8 +56,8 @@ class MeshtasticConfig:
     message_delay_seconds:
         Minimum delay between outbound messages (pacing).
     startup_backlog_suppress_seconds:
-        Tolerance in seconds before the first receive-ready connection for
-        stale rxTime suppression. Zero disables this filter.
+        Tolerance in seconds before each connection generation's receive-ready
+        watermark for stale rxTime suppression. Zero disables this filter.
     startup_packet_drain_seconds:
         Content-independent startup drain window in seconds.  While the
         window is open from the first receive-ready connection, every
@@ -67,9 +67,11 @@ class MeshtasticConfig:
         packets whose ``rxTime`` is missing, malformed, or skewed by an
         unsynced node clock.  Behavioral reference: mmrelay's
         ``STARTUP_PACKET_DRAIN_SECS`` (``15.0``).  ``0`` disables the
-        drain. Degraded startup does not consume the window before connection;
-        subsequent transparent reconnects do not re-arm it. Non-relay
-        classifications (nodeinfo, routing correlation, enrichment) are not gated.
+        drain and the fixed five-second reconnect bootstrap window for relay
+        packets without a usable ``rxTime``. Degraded startup does not consume
+        the initial window before connection; transparent reconnects retire
+        it and do not re-arm it. Non-relay classifications (nodeinfo, routing
+        correlation, enrichment) are not gated.
     sync_timeout_ms:
         Initial connection wait budget in milliseconds. Default: 30000. The
         same value bounds SDK connection/configuration phases. Expiry leaves

@@ -11,13 +11,16 @@ The `rxTime` gate judges each packet against its own generation's watermark,
 and a fixed five-second, generation-scoped window drops packets that arrive
 without a usable `rxTime` right after a reconnect (they cannot prove they are
 not queue backlog). Packets with a usable, provably fresh `rxTime` relay
-immediately — a reconnect never spends a blind content-independent drain on
-live packets.
+immediately, subject to ordinary admission and connection ownership. A rapid
+reconnect retires any remaining initial drain; failed initial setup retries
+still use the initial drain.
 
 Operator impact:
 
-- Queued pre-reconnect backlog no longer relays as fresh.
-- Live traffic immediately after a reconnect is unchanged.
+- Timestamped pre-reconnect backlog older than the generation cutoff is
+  suppressed even after the bootstrap window expires.
+- Fresh timestamped traffic is eligible immediately after a reconnect.
+  Clock skew and the configured tolerance still limit what can be judged.
 - Packets without a usable `rxTime` arriving within five seconds of a
   reconnect are dropped; afterwards they relay as before.
 - No new configuration key. The existing `startup_packet_drain_seconds: 0`
