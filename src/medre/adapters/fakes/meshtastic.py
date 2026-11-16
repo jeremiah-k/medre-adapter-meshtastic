@@ -528,6 +528,8 @@ class FakeMeshtasticAdapter(AdapterContract):
                 :-_RECEIVE_READY_EPOCH_HISTORY
             ]:
                 del self._receive_ready_epochs[stale]
+        # A replacement generation must not inherit the initial blind drain.
+        self._startup_drain_deadline_monotonic = None
         if float(self._config.startup_packet_drain_seconds) > 0:
             self._reconnect_bootstrap = (
                 generation,

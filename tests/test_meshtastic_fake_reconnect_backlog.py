@@ -232,3 +232,43 @@ async def test_fake_window_constants_match_real_adapter() -> None:
         fake_module._RECEIVE_READY_EPOCH_HISTORY
         == real_adapter_module._RECEIVE_READY_EPOCH_HISTORY
     )
+
+
+async def test_fake_rapid_reconnect_retires_initial_drain(monkeypatch) -> None:
+    clock = SimpleNamespace(wall=1_800_000_000.0, monotonic=1000.0)
+    monkeypatch.setattr(
+        fake_module,
+        "time",
+        SimpleNamespace(time=lambda: clock.wall, monotonic=lambda: clock.monotonic),
+    )
+    adapter = FakeMeshtasticAdapter(
+        make_meshtastic_config(startup_packet_drain_seconds=15.0)
+    )
+    await adapter.start(_make_context())
+    try:
+        await adapter.simulate_inbound(_text("initial", 1, clock.wall))
+        assert adapter.diagnostics()["startup_drain_packets_dropped"] == 1
+        original_deadline = adapter._startup_drain_deadline_monotonic
+        assert original_deadline is not None
+        clock.wall += 2
+        clock.monotonic += 2
+        generation = adapter.simulate_reconnect()
+        assert clock.monotonic < original_deadline
+        assert adapter._startup_drain_deadline_monotonic is None
+        watermark = adapter._receive_ready_epochs[generation]
+        await adapter.simulate_inbound(_text("live", 2, watermark))
+        await adapter.simulate_inbound(_text("unprovable", 3, None))
+        await adapter.simulate_inbound(_text("stale", 4, watermark - 60))
+        assert len(adapter.inbound_events) == 1
+        diag = adapter.diagnostics()
+        assert diag["startup_drain_packets_dropped"] == 1
+        assert diag["startup_backlog_packets_suppressed"] == 1
+        assert diag["reconnect_backlog_packets_dropped"] == 1
+        clock.wall += 60
+        clock.monotonic += 60
+        await adapter.simulate_inbound(_text("stale later", 5, watermark - 60))
+        await adapter.simulate_inbound(_text("at cutoff", 6, watermark - 5))
+        assert adapter.diagnostics()["startup_backlog_packets_suppressed"] == 2
+        assert len(adapter.inbound_events) == 2
+    finally:
+        await adapter.stop()

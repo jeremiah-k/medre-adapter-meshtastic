@@ -708,7 +708,7 @@ class TestOptOutsAndLifecycle:
             assert harness.adapter._receive_ready_epochs == {
                 harness.session.connection_generation: harness.clock.wall
             }
-            old_hook(old_generation + 100)
+            old_hook(old_generation + 100, False)
             assert len(harness.adapter._receive_ready_epochs) == 1
             assert (
                 harness.adapter.diagnostics()["receive_ready_generation"]
@@ -753,5 +753,53 @@ async def test_connection_ready_hook_fires_before_first_receive_dispatch(
         harness.clock.monotonic += 3600
         await harness.reconnect()
         assert observed == [1, harness.session.connection_generation]
+    finally:
+        await harness.adapter.stop()
+
+
+async def test_rapid_reconnect_retires_initial_drain(monkeypatch) -> None:
+    harness = _Harness(monkeypatch)
+    try:
+        await harness.start()
+        harness.on_receive(harness.clients[0], _text("initial", 1, harness.clock.wall))
+        assert harness.adapter.diagnostics()["startup_drain_packets_dropped"] == 1
+        original_deadline = harness.adapter._startup_drain_deadline_monotonic
+        assert original_deadline is not None
+        harness.clock.wall += 2
+        harness.clock.monotonic += 2
+        generation, client = await harness.reconnect()
+        assert harness.clock.monotonic < original_deadline
+        assert harness.adapter._startup_drain_deadline_monotonic is None
+        watermark = harness.receive_ready_epoch(generation)
+        harness.on_receive(client, _text("live", 2, watermark))
+        assert await wait_until(lambda: harness.ctx.publish_inbound.await_count == 1)
+        harness.on_receive(client, _text("unprovable", 3, None))
+        harness.on_receive(client, _text("stale", 4, watermark - 60))
+        assert harness.ctx.publish_inbound.await_count == 1
+        diag = harness.adapter.diagnostics()
+        assert diag["startup_drain_packets_dropped"] == 1
+        assert diag["startup_backlog_packets_suppressed"] == 1
+        assert diag["reconnect_backlog_packets_dropped"] == 1
+    finally:
+        await harness.adapter.stop()
+
+
+async def test_generation_cutoff_survives_bootstrap_expiry(monkeypatch) -> None:
+    harness = _Harness(monkeypatch, drain_seconds=15.0)
+    try:
+        await harness.start()
+        harness.clock.wall += 3600
+        harness.clock.monotonic += 3600
+        generation, client = await harness.reconnect()
+        watermark = harness.receive_ready_epoch(generation)
+        stale_time = watermark - 1800
+        harness.on_receive(client, _text("queued", 1, stale_time))
+        harness.clock.wall += 60
+        harness.clock.monotonic += 60
+        harness.on_receive(client, _text("queued later", 2, stale_time))
+        assert harness.adapter.diagnostics()["startup_backlog_packets_suppressed"] == 2
+        assert harness.ctx.publish_inbound.await_count == 0
+        harness.on_receive(client, _text("at cutoff", 3, watermark - 5))
+        assert await wait_until(lambda: harness.ctx.publish_inbound.await_count == 1)
     finally:
         await harness.adapter.stop()

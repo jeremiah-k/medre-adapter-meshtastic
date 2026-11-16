@@ -460,8 +460,10 @@ class MeshtasticAdapter(AdapterContract):
             logger=ctx.logger if ctx.logger else None,
             on_health_change=lambda: self._report_native_health(health_epoch),
             on_initial_connection=lambda: self._arm_startup_backlog(health_epoch),
-            on_connection_ready=lambda generation: (
-                self._record_connection_receive_ready(health_epoch, generation)
+            on_connection_ready=lambda generation, initial: (
+                self._record_connection_receive_ready(
+                    health_epoch, generation, initial=initial
+                )
             ),
         )
         self._session = session
@@ -930,7 +932,9 @@ class MeshtasticAdapter(AdapterContract):
                 time.monotonic() + window if window > 0 else None
             )
 
-    def _record_connection_receive_ready(self, epoch: int, generation: int) -> None:
+    def _record_connection_receive_ready(
+        self, epoch: int, generation: int, *, initial: bool
+    ) -> None:
         """Record the receive-ready watermark of one connection generation.
 
         Invoked by the session under its client-state lock on EVERY
@@ -956,13 +960,22 @@ class MeshtasticAdapter(AdapterContract):
                     :-_RECEIVE_READY_EPOCH_HISTORY
                 ]:
                     del self._receive_ready_epochs[stale]
-            if self._adapter_start_epoch is not None and (
-                float(self._config.startup_packet_drain_seconds) > 0
-            ):
+            if initial:
+                # A failed initial subscription is still initial setup; the
+                # initial hook re-arms its drain. Do not stack a second gate.
+                self._reconnect_bootstrap = None
+            else:
+                # A replacement generation owns its own ingress policy. Even
+                # a rapid reconnect must not inherit the blind startup drain.
+                self._startup_drain_deadline_monotonic = None
                 self._reconnect_bootstrap = (
-                    generation,
-                    time.monotonic() + _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
-                    0,
+                    (
+                        generation,
+                        time.monotonic() + _RECONNECT_RECEIVE_BOOTSTRAP_SECONDS,
+                        0,
+                    )
+                    if self._config.startup_packet_drain_seconds > 0
+                    else None
                 )
 
     def _receive_ready_epoch(self, generation: int | None) -> float | None:
@@ -991,9 +1004,8 @@ class MeshtasticAdapter(AdapterContract):
     ) -> bool:
         """Check whether an age-unprovable packet falls inside the reconnect bootstrap window.
 
-        Every receive-ready installation after the first (a transparent
-        reconnect, or the reinstallation retry after a failed initial
-        setup) arms a short monotonic window scoped to its connection
+        Every receive-ready installation after successful initial setup
+        (a transparent reconnect) arms a short monotonic window scoped to its connection
         generation.  While the window is open, a relay-classified packet on
         that generation without a usable ``rxTime`` is dropped: the radio
         may be emptying its FROMRADIO queue of pre-reconnect backlog and a
@@ -1098,7 +1110,9 @@ class MeshtasticAdapter(AdapterContract):
         Expiry is detected lazily on evaluation: the first check at or
         after the deadline clears the window, emits a single INFO
         completion line with the dropped count, and the window stays
-        closed for the rest of the session.  A configured window of ``0``
+        closed for the rest of the session. A transparent reconnect retires
+        any remaining initial drain without an expiry summary. A configured
+        window of ``0``
         leaves the deadline unarmed.  The per-packet DEBUG drop log follows
         the startup-backlog suppression log format.
 

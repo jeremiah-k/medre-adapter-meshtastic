@@ -142,7 +142,9 @@ class MeshtasticSession:
         session loop under the client-state lock, after the new
         generation is published and before receive callbacks can be
         subscribed or dispatched, and receives the new connection
-        generation.  The hook must be fast, non-blocking, and must not
+        generation and whether initial setup is still pending (including a
+        retry after failed initial subscription). The hook must be fast,
+        non-blocking, and must not
         raise; a raising hook fails the installation like any other
         setup error.
     """
@@ -200,7 +202,7 @@ class MeshtasticSession:
         logger: logging.Logger | None = None,
         on_health_change: Callable[[], None] | None = None,
         on_initial_connection: Callable[[], None] | None = None,
-        on_connection_ready: Callable[[int], None] | None = None,
+        on_connection_ready: Callable[[int, bool], None] | None = None,
     ) -> None:
         self._config = config
         self._adapter_id = adapter_id
@@ -320,7 +322,7 @@ class MeshtasticSession:
             self._activate_client(client)
             callback = self._connection_ready_callback
             if callback is not None:
-                callback(self._connection_generation)
+                callback(self._connection_generation, not self._initial_receive_ready)
             self._prepare_initial_ingress()
         self._subscribe_callbacks()
         self._refresh_node_id()
