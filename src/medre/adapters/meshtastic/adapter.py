@@ -417,7 +417,7 @@ class MeshtasticAdapter(AdapterContract):
             self._startup_drain_packets_dropped = 0
 
         # Create session and delegate lifecycle
-        self._session = MeshtasticSession(
+        session = MeshtasticSession(
             config=self._config,
             adapter_id=self.adapter_id,
             platform=self.platform,
@@ -425,10 +425,17 @@ class MeshtasticAdapter(AdapterContract):
             on_health_change=lambda: self._report_native_health(health_epoch),
             on_initial_connection=lambda: self._arm_startup_backlog(health_epoch),
         )
+        self._session = session
 
-        # Register our inbound packet callback with the session
+        # Capture the owning session here and the generation in its receive
+        # callback, not after dispatch has crossed the session lock.
+        def on_packet(packet: dict[str, Any], generation: int) -> None:
+            self._on_packet(
+                packet, source_session=session, source_generation=generation
+            )
+
         try:
-            await self._session.start(message_callback=self._on_packet)
+            await session.start(generation_callback=on_packet)
         except asyncio.CancelledError:
             # Clear adapter-owned fields synchronously — no await.
             self._session = None
@@ -1002,7 +1009,13 @@ class MeshtasticAdapter(AdapterContract):
 
         return False
 
-    def _on_packet(self, packet: dict[str, Any]) -> None:
+    def _on_packet(
+        self,
+        packet: dict[str, Any],
+        *,
+        source_session: MeshtasticSession | None = None,
+        source_generation: int | None = None,
+    ) -> None:
         """Process an inbound Meshtastic packet.
 
         Classifies the packet, decodes it via the codec, and publishes
@@ -1017,6 +1030,9 @@ class MeshtasticAdapter(AdapterContract):
         ----------
         packet:
             Raw Meshtastic packet dict.
+        source_session / source_generation:
+            Native receive ownership captured at interface validation. Direct
+            test injection may omit both; SDK dispatch supplies both.
         """
         # Inbound-path lifecycle guard: reject packets arriving after
         # stop() has cleared _started.  This check runs before any
@@ -1028,10 +1044,23 @@ class MeshtasticAdapter(AdapterContract):
 
         try:
             reservations = self._ingress_reservations
-            session = self._session
-            connection_generation = (
-                session.connection_generation if session is not None else None
-            )
+            if source_session is not None:
+                if (
+                    self._session is not source_session
+                    or source_generation is None
+                    or not source_session.is_connection_generation_current(
+                        source_generation
+                    )
+                ):
+                    return
+                session = source_session
+                connection_generation = source_generation
+            else:
+                # Direct test injection retains the existing callback API.
+                session = self._session
+                connection_generation = (
+                    session.connection_generation if session is not None else None
+                )
             own_node_id = session.node_id if session is not None else None
             classification = self._classifier.classify(packet, own_node_id=own_node_id)
             self._increment_classifier_counters(classification)

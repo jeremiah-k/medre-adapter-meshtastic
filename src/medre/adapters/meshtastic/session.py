@@ -147,6 +147,7 @@ class MeshtasticSession:
         "_client_state_lock",
         "_connection_generation",
         "_message_callback",
+        "_generation_callback",
         "_health_callback",
         "_initial_connection_callback",
         "_initial_receive_ready",
@@ -197,6 +198,7 @@ class MeshtasticSession:
         self._client_state_lock = threading.RLock()
         self._connection_generation: int = 0
         self._message_callback: Callable[[dict[str, Any]], None] | None = None
+        self._generation_callback: Callable[[dict[str, Any], int], None] | None = None
         self._health_callback = on_health_change
         self._initial_connection_callback = on_initial_connection
         self._initial_receive_ready = False
@@ -411,6 +413,8 @@ class MeshtasticSession:
     async def start(
         self,
         message_callback: Callable[[dict[str, Any]], None] | None = None,
+        *,
+        generation_callback: Callable[[dict[str, Any], int], None] | None = None,
     ) -> None:
         """Wait within the startup budget, then retain degraded recovery ownership.
 
@@ -422,6 +426,11 @@ class MeshtasticSession:
         ----------
         message_callback:
             Callback invoked with raw packet dicts for inbound messages.
+        generation_callback:
+            Alternative inbound callback receiving the generation captured
+            during interface validation. The adapter uses this to fence
+            publication across client replacement. Mutually exclusive with
+            ``message_callback``.
 
         Raises
         ------
@@ -437,6 +446,8 @@ class MeshtasticSession:
 
         if self._startup_connect_task is not None:
             raise RuntimeError("Meshtastic connection setup is already in progress")
+        if message_callback is not None and generation_callback is not None:
+            raise ValueError("Specify only one inbound packet callback")
         self._stop_requested = False
         self._initial_receive_ready = False
         self._reconnect_attempts = 0
@@ -452,6 +463,7 @@ class MeshtasticSession:
         self._stale_receive_callbacks = 0
         self._stale_disconnect_callbacks = 0
         self._message_callback = message_callback
+        self._generation_callback = generation_callback
         self._loop = asyncio.get_running_loop()
 
         conn = self._config.connection_type
@@ -1186,10 +1198,9 @@ class MeshtasticSession:
         # dispatch outside it: packet processing runs classification, codec
         # decode, and a run_coroutine_threadsafe hop, and every other lock
         # user — including the event loop via connected()/stop() — would
-        # block for that whole duration.  A replacement racing the dispatch
-        # is already rejected downstream: the adapter re-reads
-        # connection_generation inside the callback and revalidates the
-        # session and generation before publishing.
+        # block for that whole duration. Capture the generation under this
+        # same lock: reading it anew in the adapter could relabel an old
+        # packet as belonging to a replacement client.
         with self._client_state_lock:
             if self._stop_requested:
                 return
@@ -1206,10 +1217,14 @@ class MeshtasticSession:
             if self._node_id is None and active_client is not None:
                 self._refresh_node_id()
             callback = self._message_callback
+            generation_callback = self._generation_callback
+            generation = self._connection_generation
 
-        # Dispatch outside the ownership lock.  The adapter revalidates the
-        # captured connection generation before it publishes.
-        if callback is not None:
+        # Dispatch outside the ownership lock. The adapter carries the
+        # captured token through staging and revalidates it before publishing.
+        if generation_callback is not None:
+            generation_callback(packet, generation)
+        elif callback is not None:
             callback(packet)
 
     # -- Reconnection ---------------------------------------------------------
