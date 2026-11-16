@@ -56,18 +56,20 @@ class MeshtasticConfig:
     message_delay_seconds:
         Minimum delay between outbound messages (pacing).
     startup_backlog_suppress_seconds:
-        Seconds after start to suppress stale backlog packets.
+        Tolerance in seconds before the first receive-ready connection for
+        stale rxTime suppression. Zero disables this filter.
     startup_packet_drain_seconds:
         Content-independent startup drain window in seconds.  While the
-        window is open after a successful start, every relay-classified
-        inbound packet is dropped before decode and publish, regardless of
-        ``rxTime``.  This drains the packet backlog the radio dumps from
+        window is open from the first receive-ready connection, every
+        relay-classified inbound packet is dropped before decode and publish,
+        regardless of ``rxTime``. This drains the packet backlog the radio dumps from
         its FROMRADIO queue on connect (BLE in particular), including
         packets whose ``rxTime`` is missing, malformed, or skewed by an
         unsynced node clock.  Behavioral reference: mmrelay's
         ``STARTUP_PACKET_DRAIN_SECS`` (``15.0``).  ``0`` disables the
-        drain.  Non-relay classifications (nodeinfo, routing correlation,
-        enrichment) are not gated.
+        drain. Degraded startup does not consume the window before connection;
+        subsequent transparent reconnects do not re-arm it. Non-relay
+        classifications (nodeinfo, routing correlation, enrichment) are not gated.
     sync_timeout_ms:
         Initial connection wait budget in milliseconds. Default: 30000. The
         same value bounds SDK connection/configuration phases. Expiry leaves

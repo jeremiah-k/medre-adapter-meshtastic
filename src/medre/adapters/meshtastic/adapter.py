@@ -333,7 +333,7 @@ class MeshtasticAdapter(AdapterContract):
         self._startup_backlog_packets_suppressed: int = 0
 
         # Startup packet drain — content-independent drop window armed at
-        # each successful start; see _check_startup_packet_drain.
+        # first receive-ready connection; see _check_startup_packet_drain.
         self._startup_drain_deadline_monotonic: float | None = None
         self._startup_drain_packets_dropped: int = 0
 
@@ -405,6 +405,15 @@ class MeshtasticAdapter(AdapterContract):
 
         self.ctx = ctx
 
+        # A degraded start may return long before the radio connects. Reset
+        # evidence now, but let the session arm both gates before it subscribes
+        # to the first client's receive callbacks.
+        self._adapter_start_epoch = None
+        self._startup_backlog_packets_seen = 0
+        self._startup_backlog_packets_suppressed = 0
+        self._startup_drain_deadline_monotonic = None
+        self._startup_drain_packets_dropped = 0
+
         # Create session and delegate lifecycle
         self._session = MeshtasticSession(
             config=self._config,
@@ -412,6 +421,7 @@ class MeshtasticAdapter(AdapterContract):
             platform=self.platform,
             logger=ctx.logger if ctx.logger else None,
             on_health_change=lambda: self._report_native_health(health_epoch),
+            on_initial_connection=lambda: self._arm_startup_backlog(health_epoch),
         )
 
         # Register our inbound packet callback with the session
@@ -422,6 +432,8 @@ class MeshtasticAdapter(AdapterContract):
             self._session = None
             self.ctx = None
             self._start_time = None
+            self._adapter_start_epoch = None
+            self._startup_drain_deadline_monotonic = None
             raise
         except Exception:
             # Best-effort cleanup of partially-started session.
@@ -433,22 +445,9 @@ class MeshtasticAdapter(AdapterContract):
             self._session = None
             self.ctx = None
             self._start_time = None
+            self._adapter_start_epoch = None
+            self._startup_drain_deadline_monotonic = None
             raise
-
-        # Session-scoped backlog baseline — set after the bounded startup wait.
-        self._adapter_start_epoch = time.time()
-        self._startup_backlog_packets_seen = 0
-        self._startup_backlog_packets_suppressed = 0
-
-        # Arm this session's startup packet drain.  The window is
-        # content-independent: relay-classified packets arriving while it is
-        # open are dropped without consulting rxTime.  A window of 0 leaves
-        # the deadline unarmed for the whole session.
-        drain_window = float(self._config.startup_packet_drain_seconds)
-        self._startup_drain_deadline_monotonic = (
-            time.monotonic() + drain_window if drain_window > 0 else None
-        )
-        self._startup_drain_packets_dropped = 0
 
         self._loop = asyncio.get_running_loop()
         self._drain_task = asyncio.create_task(self._process_queue())
@@ -865,10 +864,25 @@ class MeshtasticAdapter(AdapterContract):
         except Exception:
             return None  # Non-critical enrichment; names are best-effort
 
+    def _arm_startup_backlog(self, epoch: int) -> None:
+        """Set both baselines before the initial native receive subscription.
+
+        A late hook from a retired adapter lifecycle must not re-arm it.
+        Failed initial subscription attempts may re-arm; counters are reset
+        only at adapter start so already recorded drops are not lost.
+        """
+        if epoch != self._health_epoch or self.ctx is None:
+            return
+        self._adapter_start_epoch = time.time()
+        window = float(self._config.startup_packet_drain_seconds)
+        self._startup_drain_deadline_monotonic = (
+            time.monotonic() + window if window > 0 else None
+        )
+
     def _check_startup_packet_drain(self, packet_id: Any) -> bool:
         """Check whether a relay-classified packet falls inside the startup drain window.
 
-        The window is armed at each successful :meth:`start` and is
+        The window is armed before the first receive-ready connection and is
         content-independent: while ``time.monotonic()`` is before the
         deadline, every relay-classified packet is dropped without
         consulting ``rxTime``.  This covers the backlog radios dump from

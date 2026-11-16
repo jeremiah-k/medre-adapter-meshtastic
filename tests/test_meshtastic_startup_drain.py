@@ -16,8 +16,10 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from medre.core.contracts.adapter import AdapterContext
 from medre_meshtastic_tests.helpers.async_utils import wait_until
 from medre_meshtastic_tests.helpers.meshtastic import (
@@ -25,7 +27,10 @@ from medre_meshtastic_tests.helpers.meshtastic import (
     make_meshtastic_text_packet,
 )
 
+from medre.adapters.meshtastic import adapter as adapter_module
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.errors import MeshtasticConnectionError
+from medre.adapters.meshtastic.session import MeshtasticSession
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -474,4 +479,179 @@ class TestDrainArmingAndDiagnostics:
         assert diag["startup_backlog_packets_suppressed"] == 1
         assert diag["inbound_published"] == 0
 
+        await adapter.stop()
+
+
+@pytest.mark.parametrize("initial_refusal", [False, True])
+@pytest.mark.parametrize("drain_seconds", [0.0, 15.0])
+async def test_degraded_start_arms_at_first_receive_subscription(
+    monkeypatch, initial_refusal, drain_seconds
+) -> None:
+    """Retained starts and initial refusals must not spend the drain offline."""
+    clock = SimpleNamespace(wall=1_800_000_000.0, monotonic=100.0)
+    monkeypatch.setattr(
+        adapter_module,
+        "time",
+        SimpleNamespace(time=lambda: clock.wall, monotonic=lambda: clock.monotonic),
+    )
+    monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+    monkeypatch.setattr(MeshtasticSession, "_reconnect_delay", lambda self, attempt: 0)
+    ready = asyncio.Event()
+    subscriptions = []
+    attempts = 0
+    native = SimpleNamespace(close=MagicMock())
+
+    async def connect(session):
+        nonlocal attempts
+        attempts += 1
+        if initial_refusal and attempts == 1:
+            raise MeshtasticConnectionError("offline")
+        await ready.wait()
+        return native
+
+    def subscribe(session):
+        subscriptions.append(adapter._adapter_start_epoch)
+        assert adapter._adapter_start_epoch == clock.wall
+        expected = clock.monotonic + drain_seconds if drain_seconds else None
+        assert adapter._startup_drain_deadline_monotonic == expected
+        # This is deliberately inside registration, not after the recovery
+        # task has finished. A post-subscription health hook would be too late.
+        session._on_receive(
+            make_meshtastic_text_packet(text="queued without rxTime", packet_id=1),
+            interface=native,
+        )
+
+    monkeypatch.setattr(MeshtasticSession, "_create_client_offloop", connect)
+    monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", subscribe)
+    adapter = MeshtasticAdapter(
+        make_meshtastic_config(
+            connection_type="tcp",
+            host="localhost",
+            sync_timeout_ms=10,
+            tcp_liveness_interval_seconds=0,
+            startup_packet_drain_seconds=drain_seconds,
+        )
+    )
+    ctx = _make_context()
+    try:
+        await adapter.start(ctx)
+        session = adapter._session
+        assert session is not None and session.reconnecting and not session.connected
+        assert adapter._adapter_start_epoch is None
+        assert adapter._startup_drain_deadline_monotonic is None
+        clock.wall += 20
+        clock.monotonic += 20
+        ready.set()
+        assert await wait_until(lambda: session.connected)
+        assert subscriptions == [clock.wall]
+        assert attempts == (2 if initial_refusal else 1)
+        if drain_seconds:
+            assert adapter.diagnostics()["startup_drain_packets_dropped"] == 1
+            ctx.publish_inbound.assert_not_awaited()
+        else:
+            assert await wait_until(lambda: ctx.publish_inbound.await_count == 1)
+        clock.wall += 30
+        clock.monotonic += 30
+        # The rxTime gate starts at connection readiness too. This packet
+        # was fresh relative to the old start epoch, but is now stale.
+        stale = make_meshtastic_text_packet(text="old rxTime", packet_id=2)
+        stale["rxTime"] = clock.wall - 40
+        session._on_receive(stale, interface=native)
+        assert adapter.diagnostics()["startup_backlog_packets_suppressed"] == 1
+        session._on_receive(
+            make_meshtastic_text_packet(text="live", packet_id=3), interface=native
+        )
+        assert await wait_until(
+            lambda: ctx.publish_inbound.await_count == (1 if drain_seconds else 2)
+        )
+    finally:
+        ready.set()
+        await adapter.stop()
+
+
+async def test_initial_subscription_failure_rearms_but_later_reconnect_does_not(
+    monkeypatch,
+) -> None:
+    """The first successful subscription owns the baseline, not failed attempts."""
+    clock = SimpleNamespace(wall=1_800_000_000.0, monotonic=100.0)
+    monkeypatch.setattr(
+        adapter_module,
+        "time",
+        SimpleNamespace(time=lambda: clock.wall, monotonic=lambda: clock.monotonic),
+    )
+    monkeypatch.setattr("medre.adapters.meshtastic.session.HAS_MESHTASTIC", True)
+    monkeypatch.setattr(MeshtasticSession, "_reconnect_delay", lambda self, attempt: 0)
+    clients = [SimpleNamespace(close=MagicMock()) for _ in range(3)]
+    calls = 0
+    first = asyncio.Event()
+
+    async def connect(session):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await first.wait()
+        return clients[calls - 1]
+
+    def subscribe(session):
+        if calls == 1:
+            assert adapter._startup_drain_deadline_monotonic == 115.0
+            clock.wall += 20
+            clock.monotonic += 20
+            raise MeshtasticConnectionError("subscription failed")
+        if calls == 2:
+            assert adapter._startup_drain_deadline_monotonic == 135.0
+        if calls == 3:
+            assert adapter._startup_drain_deadline_monotonic is None
+
+    monkeypatch.setattr(MeshtasticSession, "_create_client_offloop", connect)
+    monkeypatch.setattr(MeshtasticSession, "_subscribe_callbacks", subscribe)
+    adapter = MeshtasticAdapter(
+        make_meshtastic_config(
+            connection_type="tcp",
+            host="localhost",
+            sync_timeout_ms=10,
+            tcp_liveness_interval_seconds=0,
+            startup_packet_drain_seconds=15.0,
+        )
+    )
+    ctx = _make_context()
+    try:
+        await adapter.start(ctx)
+        session = adapter._session
+        assert session is not None and session.reconnecting
+        first.set()
+        assert await wait_until(lambda: session.connected and calls == 2)
+        clients[0].close.assert_called_once()
+        baseline = adapter._adapter_start_epoch
+        assert baseline == clock.wall
+        clock.wall += 20
+        clock.monotonic += 20
+        assert adapter._check_startup_packet_drain(1) is False
+        session.notify_connection_lost()
+        assert await wait_until(lambda: session.connected and calls == 3)
+        assert adapter._adapter_start_epoch == baseline
+        assert adapter._startup_drain_deadline_monotonic is None
+    finally:
+        first.set()
+        await adapter.stop()
+
+
+async def test_retired_initial_connection_hook_cannot_rearm_restart() -> None:
+    adapter = MeshtasticAdapter(make_meshtastic_config(startup_packet_drain_seconds=15))
+    ctx = _make_context()
+    try:
+        await adapter.start(ctx)
+        session = adapter._session
+        assert session is not None
+        old_hook = session._initial_connection_callback
+        assert old_hook is not None
+        await adapter.stop()
+        await adapter.start(ctx)
+        _expire_drain_window(adapter)
+        assert adapter._check_startup_packet_drain(1) is False
+        baseline = adapter._adapter_start_epoch
+        old_hook()
+        assert adapter._adapter_start_epoch == baseline
+        assert adapter._startup_drain_deadline_monotonic is None
+    finally:
         await adapter.stop()

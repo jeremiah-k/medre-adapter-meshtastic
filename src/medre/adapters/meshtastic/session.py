@@ -131,6 +131,11 @@ class MeshtasticSession:
     logger:
         Optional :class:`logging.Logger`.  When ``None`` a module-level
         fallback logger is used.
+    on_initial_connection:
+        Optional synchronous hook on the session loop, before the first
+        client can deliver receive callbacks (also for fake connections).
+        Failed callback setup may invoke it again on the next attempt.
+        Later reconnects do not invoke it after successful initial setup.
     """
 
     __slots__ = (
@@ -143,6 +148,8 @@ class MeshtasticSession:
         "_connection_generation",
         "_message_callback",
         "_health_callback",
+        "_initial_connection_callback",
+        "_initial_receive_ready",
         "_logger",
         "_started",
         "_subscribed",
@@ -181,6 +188,7 @@ class MeshtasticSession:
         *,
         logger: logging.Logger | None = None,
         on_health_change: Callable[[], None] | None = None,
+        on_initial_connection: Callable[[], None] | None = None,
     ) -> None:
         self._config = config
         self._adapter_id = adapter_id
@@ -190,6 +198,8 @@ class MeshtasticSession:
         self._connection_generation: int = 0
         self._message_callback: Callable[[dict[str, Any]], None] | None = None
         self._health_callback = on_health_change
+        self._initial_connection_callback = on_initial_connection
+        self._initial_receive_ready = False
         self._logger: logging.Logger = logger if logger is not None else _logger
         self._started: bool = False
         self._subscribed: bool = False
@@ -272,6 +282,29 @@ class MeshtasticSession:
         with self._client_state_lock:
             self._client = client
             self._connection_generation += 1
+
+    def _prepare_initial_ingress(self) -> None:
+        """Arm adapter-owned policy before opening the first receive path."""
+        if not self._initial_receive_ready:
+            callback = self._initial_connection_callback
+            if callback is not None:
+                callback()
+
+    def _install_client(self, client: Any) -> None:
+        """Install a client with the first-connection policy already armed.
+
+        Subscription may dispatch synchronously. Mark initial setup complete
+        only after subscription and node refresh succeed, so a retry after
+        partial setup gets a fresh baseline.
+        """
+        # Publish the client and its ingress baseline as one ownership step.
+        # A reader cannot observe the new client with the previous baseline.
+        with self._client_state_lock:
+            self._activate_client(client)
+            self._prepare_initial_ingress()
+        self._subscribe_callbacks()
+        self._refresh_node_id()
+        self._initial_receive_ready = True
 
     def _invalidate_client(self) -> Any:
         """Detach the active SDK client and invalidate callbacks that captured it."""
@@ -405,6 +438,7 @@ class MeshtasticSession:
         if self._startup_connect_task is not None:
             raise RuntimeError("Meshtastic connection setup is already in progress")
         self._stop_requested = False
+        self._initial_receive_ready = False
         self._reconnect_attempts = 0
         self._reconnect_total_attempts = 0
         self._reconnecting = False
@@ -425,6 +459,8 @@ class MeshtasticSession:
         if conn == "fake":
             self._client = None
             self._node_id = None
+            self._prepare_initial_ingress()
+            self._initial_receive_ready = True
         else:
             if not HAS_MESHTASTIC:
                 raise MeshtasticConnectionError(
@@ -482,12 +518,10 @@ class MeshtasticSession:
                 raise
 
             if client is not None:
-                self._activate_client(client)
                 try:
-                    self._subscribe_callbacks()
-                    self._refresh_node_id()
+                    self._install_client(client)
                 except Exception:
-                    self._subscribed = False
+                    self._unsubscribe_callbacks()
                     try:
                         close_fn = getattr(self._client, "close", None)
                         if close_fn is not None:
@@ -1621,9 +1655,7 @@ class MeshtasticSession:
                                 self._startup_connect_task = None
                     else:
                         new_client = await self._create_client_offloop()
-                    self._activate_client(new_client)
-                    self._subscribe_callbacks()
-                    self._refresh_node_id()
+                    self._install_client(new_client)
                     with self._client_state_lock:
                         # Ownership passed to the fresh client. Release the
                         # reconnecting state before this task exits: a
