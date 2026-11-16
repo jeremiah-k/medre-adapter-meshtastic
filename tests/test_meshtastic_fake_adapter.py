@@ -275,7 +275,7 @@ class TestFakeMeshtasticAdapterSimulateInbound:
     async def test_simulate_inbound_text_packet(
         self, make_adapter_context, inbound_collector
     ) -> None:
-        adapter = FakeMeshtasticAdapter()
+        adapter = FakeMeshtasticAdapter(make_meshtastic_config())
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
 
@@ -290,7 +290,7 @@ class TestFakeMeshtasticAdapterSimulateInbound:
     async def test_simulate_inbound_accepts_text_message_app(
         self, make_adapter_context, inbound_collector
     ) -> None:
-        adapter = FakeMeshtasticAdapter()
+        adapter = FakeMeshtasticAdapter(make_meshtastic_config())
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
 

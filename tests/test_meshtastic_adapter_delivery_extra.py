@@ -210,11 +210,15 @@ class TestDeliveryOutcomeQueuedStatus:
         from medre.adapters.meshtastic.renderer import MeshtasticRenderer
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
-        fake_in_config = MeshtasticConfig(adapter_id="qo-fake-in")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="qo-fake-in", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="qo-mesh-out", connection_type="fake"
+            adapter_id="qo-mesh-out",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -323,9 +327,15 @@ class TestDeliveryOutcomeQueuedStatus:
         from medre.adapters.meshtastic.renderer import MeshtasticRenderer
         from medre.config.adapters.meshtastic import MeshtasticConfig
 
-        fake_in = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="acc-fake"))
+        fake_in = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="acc-fake", startup_packet_drain_seconds=0)
+        )
         mesh_out = MeshtasticAdapter(
-            MeshtasticConfig(adapter_id="acc-mesh", connection_type="fake")
+            MeshtasticConfig(
+                adapter_id="acc-mesh",
+                connection_type="fake",
+                startup_packet_drain_seconds=0,
+            )
         )
         plain_out = FakeTransportAdapter(adapter_id="acc-plain")
 

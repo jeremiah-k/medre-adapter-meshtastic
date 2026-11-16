@@ -221,6 +221,11 @@ class FakeMeshtasticAdapter(AdapterContract):
         self._adapter_start_epoch: float | None = None
         self._startup_backlog_packets_seen: int = 0
         self._startup_backlog_packets_suppressed: int = 0
+        # Startup packet drain — mirrors the real adapter's content-
+        # independent drop window armed at each successful start; see
+        # _check_startup_packet_drain.
+        self._startup_drain_deadline_monotonic: float | None = None
+        self._startup_drain_packets_dropped: int = 0
         # Outbound gate suppression counter
         self._outbound_gate_suppressed: int = 0
         # Build per-config capabilities matching the real adapter pattern.
@@ -266,6 +271,13 @@ class FakeMeshtasticAdapter(AdapterContract):
         self._adapter_start_epoch = time.time()
         self._startup_backlog_packets_seen = 0
         self._startup_backlog_packets_suppressed = 0
+        # Arm this session's startup packet drain, mirroring the real
+        # adapter.  A window of 0 leaves the deadline unarmed.
+        drain_window = float(self._config.startup_packet_drain_seconds)
+        self._startup_drain_deadline_monotonic = (
+            time.monotonic() + drain_window if drain_window > 0 else None
+        )
+        self._startup_drain_packets_dropped = 0
         ctx.logger.info("FakeMeshtasticAdapter %s started", self.adapter_id)
 
     async def stop(self, timeout: float = 5.0) -> None:
@@ -301,6 +313,9 @@ class FakeMeshtasticAdapter(AdapterContract):
             "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
             "startup_backlog_suppress_seconds": self._config.startup_backlog_suppress_seconds,
             "adapter_start_epoch": self._adapter_start_epoch,
+            # Startup packet drain — mirrors the real adapter's evidence keys
+            "startup_drain_packets_dropped": self._startup_drain_packets_dropped,
+            "startup_packet_drain_seconds": self._config.startup_packet_drain_seconds,
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,
@@ -403,6 +418,55 @@ class FakeMeshtasticAdapter(AdapterContract):
             metadata=result_metadata,
         )
 
+    def _check_startup_packet_drain(self, packet_id: Any) -> bool:
+        """Check whether a relay-classified packet falls inside the startup drain window.
+
+        Mirrors
+        :meth:`~medre.adapters.meshtastic.adapter.MeshtasticAdapter._check_startup_packet_drain`:
+        the window arms at each successful :meth:`start` and drops every
+        relay-classified packet until ``time.monotonic()`` passes the
+        deadline, regardless of ``rxTime``.  Expiry is detected lazily on
+        evaluation; the first check at or after the deadline clears the
+        window, emits a single INFO completion line with the dropped
+        count, and the window stays closed for the rest of the session.
+
+        Parameters
+        ----------
+        packet_id:
+            The packet ID for safe logging.
+
+        Returns
+        -------
+        bool
+            ``True`` while the drain window is open (the packet should be
+            dropped); ``False`` once the window has expired or is disabled.
+        """
+        deadline = self._startup_drain_deadline_monotonic
+        if deadline is None:
+            return False
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            self._startup_drain_deadline_monotonic = None
+            _logger.info(
+                "FakeMeshtasticAdapter %s: startup packet drain window ended - "
+                "accepting packets (dropped=%d)",
+                self.adapter_id,
+                self._startup_drain_packets_dropped,
+            )
+            return False
+
+        _logger.debug(
+            "FakeMeshtasticAdapter %s: startup packet drain dropped "
+            "transport=meshtastic packet_id=%s remaining=%.3fs window=%s",
+            self.adapter_id,
+            packet_id,
+            remaining,
+            self._config.startup_packet_drain_seconds,
+        )
+        self._startup_drain_packets_dropped += 1
+        return True
+
     # -- Inbound simulation -------------------------------------------------
 
     async def simulate_inbound(
@@ -414,8 +478,9 @@ class FakeMeshtasticAdapter(AdapterContract):
         """Simulate an inbound Meshtastic packet.
 
         Classifies, decodes, and publishes the packet through the same
-        path as a real inbound packet.  Applies startup backlog suppression
-        using the same shared utilities as the real adapter.
+        path as a real inbound packet.  Applies the startup packet drain
+        window and rxTime-based startup backlog suppression using the
+        same shared utilities as the real adapter.
 
         Parameters
         ----------
@@ -448,6 +513,11 @@ class FakeMeshtasticAdapter(AdapterContract):
 
         classification = self._classifier.classify(packet, own_node_id=None)
         if classification.action != "relay":
+            return
+
+        # Startup packet drain gate (mirrors real adapter) — content-
+        # independent, evaluated before the rxTime-based suppression block.
+        if self._check_startup_packet_drain(classification.packet_id):
             return
 
         # Startup backlog suppression gate (mirrors real adapter)

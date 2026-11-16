@@ -58,11 +58,15 @@ class TestMeshtasticBridgeErrorMapping:
     ) -> None:
         """When MeshtasticAdapter's queue raises a transient error, the
         pipeline records failed-attempt and dead-letter lifecycle evidence."""
-        fake_in_config = MeshtasticConfig(adapter_id="err-fake-in")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="err-fake-in", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="err-mesh-out", connection_type="fake"
+            adapter_id="err-mesh-out",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -85,7 +89,11 @@ class TestMeshtasticBridgeErrorMapping:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"err-mesh-out": MeshtasticConfig(adapter_id="err-mesh-out")}
+                configs={
+                    "err-mesh-out": MeshtasticConfig(
+                        adapter_id="err-mesh-out", startup_packet_drain_seconds=0
+                    )
+                }
             ),
             priority=50,
         )
@@ -154,11 +162,15 @@ class TestMeshtasticBridgeErrorMapping:
     ) -> None:
         """When MeshtasticAdapter's queue raises a permanent error, the
         pipeline records failed-attempt and dead-letter lifecycle evidence."""
-        fake_in_config = MeshtasticConfig(adapter_id="perm-fake-in")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="perm-fake-in", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="perm-mesh-out", connection_type="fake"
+            adapter_id="perm-mesh-out",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
 
@@ -181,7 +193,11 @@ class TestMeshtasticBridgeErrorMapping:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"perm-mesh-out": MeshtasticConfig(adapter_id="perm-mesh-out")}
+                configs={
+                    "perm-mesh-out": MeshtasticConfig(
+                        adapter_id="perm-mesh-out", startup_packet_drain_seconds=0
+                    )
+                }
             ),
             priority=50,
         )
@@ -234,7 +250,11 @@ class TestMeshtasticBridgeErrorMapping:
     async def test_cancelled_error_propagates_through_deliver(self) -> None:
         """CancelledError propagates through MeshtasticAdapter.deliver()
         without being swallowed."""
-        mesh_config = MeshtasticConfig(adapter_id="cancel-mesh", connection_type="fake")
+        mesh_config = MeshtasticConfig(
+            adapter_id="cancel-mesh",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
         mesh_adapter = MeshtasticAdapter(mesh_config)
         mesh_adapter.ctx = AdapterContext(
             adapter_id="cancel-mesh",
@@ -265,11 +285,15 @@ class TestMeshtasticBridgeErrorMapping:
     ) -> None:
         """A Meshtastic delivery failure does not prevent delivery to a
         second target in the same route."""
-        fake_in_config = MeshtasticConfig(adapter_id="iso-fake-in")
+        fake_in_config = MeshtasticConfig(
+            adapter_id="iso-fake-in", startup_packet_drain_seconds=0
+        )
         fake_in_adapter = FakeMeshtasticAdapter(fake_in_config)
 
         mesh_out_config = MeshtasticConfig(
-            adapter_id="iso-mesh-out", connection_type="fake"
+            adapter_id="iso-mesh-out",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_out_adapter = MeshtasticAdapter(mesh_out_config)
         # Inject failure into the Meshtastic adapter.
@@ -277,7 +301,9 @@ class TestMeshtasticBridgeErrorMapping:
             side_effect=MeshtasticSendError("radio busy", transient=True)
         )
 
-        good_config = MeshtasticConfig(adapter_id="iso-good-out")
+        good_config = MeshtasticConfig(
+            adapter_id="iso-good-out", startup_packet_drain_seconds=0
+        )
         good_adapter = FakeMeshtasticAdapter(good_config)
 
         route = Route(
@@ -298,8 +324,12 @@ class TestMeshtasticBridgeErrorMapping:
         rp.register(
             MeshtasticRenderer(
                 configs={
-                    "iso-mesh-out": MeshtasticConfig(adapter_id="iso-mesh-out"),
-                    "iso-good-out": MeshtasticConfig(adapter_id="iso-good-out"),
+                    "iso-mesh-out": MeshtasticConfig(
+                        adapter_id="iso-mesh-out", startup_packet_drain_seconds=0
+                    ),
+                    "iso-good-out": MeshtasticConfig(
+                        adapter_id="iso-good-out", startup_packet_drain_seconds=0
+                    ),
                 }
             ),
             priority=50,
