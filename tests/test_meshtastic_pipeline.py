@@ -68,7 +68,9 @@ async def _make_pipeline(
     # Use a realistic adapter ID (not starting with "meshtastic") to
     # prove renderer selection works without prefix dependency.
     out_adapter_id = "mesh-out"
-    out_config = MeshtasticConfig(adapter_id=out_adapter_id)
+    out_config = MeshtasticConfig(
+        adapter_id=out_adapter_id, startup_packet_drain_seconds=0
+    )
     out_adapter = FakeMeshtasticAdapter(out_config)
 
     rp = rendering_pipeline or RenderingPipeline()
@@ -116,7 +118,9 @@ class TestMeshtasticPipelineIntegration:
             MeshtasticRenderer(
                 configs={
                     "meshtastic_node": MeshtasticConfig(
-                        adapter_id="meshtastic_node", relay_prefix=""
+                        adapter_id="meshtastic_node",
+                        relay_prefix="",
+                        startup_packet_drain_seconds=0,
                     )
                 }
             ),
@@ -149,7 +153,11 @@ class TestMeshtasticPipelineIntegration:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1")}
+                configs={
+                    "mesh-1": MeshtasticConfig(
+                        adapter_id="mesh-1", startup_packet_drain_seconds=0
+                    )
+                }
             ),
             priority=50,
         )
@@ -177,7 +185,9 @@ class TestMeshtasticPipelineIntegration:
         self, make_adapter_context, inbound_collector
     ) -> None:
         """Inbound Meshtastic events preserve native refs through simulation."""
-        config = MeshtasticConfig(adapter_id="mesh-test")
+        config = MeshtasticConfig(
+            adapter_id="mesh-test", startup_packet_drain_seconds=0
+        )
         adapter = FakeMeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-test")
         await adapter.start(ctx)
@@ -195,7 +205,9 @@ class TestMeshtasticPipelineIntegration:
         self, make_adapter_context, inbound_collector
     ) -> None:
         """Inbound Meshtastic text packets decode as message.created."""
-        config = MeshtasticConfig(adapter_id="mesh-test")
+        config = MeshtasticConfig(
+            adapter_id="mesh-test", startup_packet_drain_seconds=0
+        )
         adapter = FakeMeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-test")
         await adapter.start(ctx)
@@ -211,8 +223,12 @@ class TestMeshtasticPipelineIntegration:
     ) -> None:
         """Outbound delivery to realistic Meshtastic IDs uses MeshtasticRenderer,
         not TextRenderer. Proves can_render selection via platform registry."""
-        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="radio-in"))
-        out_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="local-radio"))
+        in_adapter = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="radio-in", startup_packet_drain_seconds=0)
+        )
+        out_adapter = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="local-radio", startup_packet_drain_seconds=0)
+        )
 
         route = Route(
             id="mesh-renderer-check",
@@ -228,7 +244,11 @@ class TestMeshtasticPipelineIntegration:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"local-radio": MeshtasticConfig(adapter_id="local-radio")}
+                configs={
+                    "local-radio": MeshtasticConfig(
+                        adapter_id="local-radio", startup_packet_drain_seconds=0
+                    )
+                }
             ),
             priority=50,
         )
@@ -305,7 +325,9 @@ class TestMeshtasticNativeRefPersistence:
 
     async def test_inbound_native_ref_persisted(self, temp_storage) -> None:
         """Inbound Meshtastic event → pipeline store → NativeMessageRef(direction="inbound")."""
-        config = MeshtasticConfig(adapter_id="mesh-inbound")
+        config = MeshtasticConfig(
+            adapter_id="mesh-inbound", startup_packet_drain_seconds=0
+        )
         adapter = FakeMeshtasticAdapter(config)
 
         route = Route(
@@ -349,8 +371,12 @@ class TestMeshtasticNativeRefPersistence:
 
     async def test_outbound_native_ref_persisted(self, temp_storage) -> None:
         """Outbound FakeMeshtasticAdapter deliver → pipeline store → NativeMessageRef(direction="outbound")."""
-        in_config = MeshtasticConfig(adapter_id="mesh-in")
-        out_config = MeshtasticConfig(adapter_id="mesh-out")
+        in_config = MeshtasticConfig(
+            adapter_id="mesh-in", startup_packet_drain_seconds=0
+        )
+        out_config = MeshtasticConfig(
+            adapter_id="mesh-out", startup_packet_drain_seconds=0
+        )
         in_adapter = FakeMeshtasticAdapter(in_config)
         out_adapter = FakeMeshtasticAdapter(out_config)
 
@@ -400,8 +426,12 @@ class TestMeshtasticNativeRefPersistence:
 
     async def test_failed_delivery_no_outbound_native_ref(self, temp_storage) -> None:
         """Failed deliver → no outbound native ref in storage."""
-        in_config = MeshtasticConfig(adapter_id="mesh-fail-in")
-        out_config = MeshtasticConfig(adapter_id="mesh-fail-out")
+        in_config = MeshtasticConfig(
+            adapter_id="mesh-fail-in", startup_packet_drain_seconds=0
+        )
+        out_config = MeshtasticConfig(
+            adapter_id="mesh-fail-out", startup_packet_drain_seconds=0
+        )
         in_adapter = FakeMeshtasticAdapter(in_config)
         out_adapter = FakeMeshtasticAdapter(out_config)
         out_adapter.set_deliver_failure(True)
@@ -460,7 +490,7 @@ class TestMeshtasticNativeRefPersistence:
 
     async def test_duplicate_inbound_native_ref_idempotent(self, temp_storage) -> None:
         """Duplicate inbound native refs are idempotent (INSERT OR IGNORE)."""
-        config = MeshtasticConfig(adapter_id="mesh-dup")
+        config = MeshtasticConfig(adapter_id="mesh-dup", startup_packet_drain_seconds=0)
         adapter = FakeMeshtasticAdapter(config)
 
         route = Route(
@@ -540,7 +570,9 @@ class TestMeshtasticReplyRelation:
         target_native_ref. The pipeline stores the event with the unresolved relation.
         Relation resolution happens in pipeline Stage 2 but if the target ref doesn't
         exist in storage, the relation stays unresolved (target_event_id=None)."""
-        config = MeshtasticConfig(adapter_id="mesh-reply")
+        config = MeshtasticConfig(
+            adapter_id="mesh-reply", startup_packet_drain_seconds=0
+        )
         adapter = FakeMeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-reply")
         await adapter.start(ctx)
@@ -574,7 +606,9 @@ class TestMeshtasticReplyRelation:
         This test uses a PipelineRunner with a RelationResolver so that the pipeline
         resolves relations during event processing. The relation resolution happens
         in pipeline.handle_event() Stage 2 BEFORE the event is published to inbound."""
-        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="mesh-source"))
+        in_adapter = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="mesh-source", startup_packet_drain_seconds=0)
+        )
 
         route = Route(
             id="mesh-reply-route",
@@ -656,7 +690,9 @@ class TestMeshtasticReplyRelation:
     ) -> None:
         """A reply referencing a non-existent native ref stays unresolved.
         The pipeline does not crash, and the relation is preserved."""
-        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="mesh-orphan"))
+        in_adapter = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="mesh-orphan", startup_packet_drain_seconds=0)
+        )
 
         route = Route(
             id="mesh-orphan-route",
@@ -730,9 +766,13 @@ class TestMeshtasticPlatformRendererSelection:
         - TextRenderer is NOT selected for Meshtastic routes
         """
         # 1. Create adapters with realistic IDs that do NOT start with "meshtastic"
-        in_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="local-node"))
+        in_adapter = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="local-node", startup_packet_drain_seconds=0)
+        )
 
-        out_adapter = FakeMeshtasticAdapter(MeshtasticConfig(adapter_id="radio-out"))
+        out_adapter = FakeMeshtasticAdapter(
+            MeshtasticConfig(adapter_id="radio-out", startup_packet_drain_seconds=0)
+        )
 
         # 2. Route: local-node -> radio-out
         route = Route(
@@ -750,7 +790,11 @@ class TestMeshtasticPlatformRendererSelection:
         rp = RenderingPipeline()
         rp.register(
             MeshtasticRenderer(
-                configs={"radio-out": MeshtasticConfig(adapter_id="radio-out")}
+                configs={
+                    "radio-out": MeshtasticConfig(
+                        adapter_id="radio-out", startup_packet_drain_seconds=0
+                    )
+                }
             ),
             priority=50,
         )

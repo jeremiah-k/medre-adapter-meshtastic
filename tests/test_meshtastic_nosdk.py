@@ -63,6 +63,7 @@ def _make_fake_config(adapter_id: str = "meshtastic-fake-test"):
     return MeshtasticConfig(
         adapter_id=adapter_id,
         connection_type="fake",
+        startup_packet_drain_seconds=0,
     )
 
 
@@ -253,6 +254,7 @@ class TestMeshtasticNoSdkLifecycle:
             adapter_id="meshtastic-tcp-nosdk",
             connection_type="tcp",
             host="localhost",
+            startup_packet_drain_seconds=0,
         )
         adapter = MeshtasticAdapter(tcp_config)
         ctx = _make_context()

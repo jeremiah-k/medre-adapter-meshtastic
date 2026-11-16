@@ -175,14 +175,20 @@ class TestMeshtasticCodecIsolation:
     """Meshtastic codec is a pure decoder — no routing, planning, or delivery."""
 
     def test_codec_has_no_route_methods(self) -> None:
-        codec = MeshtasticCodec("mesh-1", MeshtasticConfig(adapter_id="mesh-1"))
+        codec = MeshtasticCodec(
+            "mesh-1",
+            MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0),
+        )
         assert not hasattr(codec, "route")
         assert not hasattr(codec, "plan")
         assert not hasattr(codec, "deliver")
         assert not hasattr(codec, "publish")
 
     def test_codec_decode_returns_canonical_event(self) -> None:
-        codec = MeshtasticCodec("mesh-1", MeshtasticConfig(adapter_id="mesh-1"))
+        codec = MeshtasticCodec(
+            "mesh-1",
+            MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0),
+        )
         packet = {
             "fromId": "!node1",
             "id": 1,
@@ -223,13 +229,21 @@ class TestMeshtasticRendererIsolation:
 
     def test_renderer_has_no_deliver_method(self) -> None:
         renderer = MeshtasticRenderer(
-            configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")}
+            configs={
+                "mesh-1": MeshtasticConfig(
+                    adapter_id="mesh-1", relay_prefix="", startup_packet_drain_seconds=0
+                )
+            }
         )
         assert not hasattr(renderer, "deliver")
 
     def test_renderer_has_no_send_method(self) -> None:
         renderer = MeshtasticRenderer(
-            configs={"mesh-1": MeshtasticConfig(adapter_id="mesh-1", relay_prefix="")}
+            configs={
+                "mesh-1": MeshtasticConfig(
+                    adapter_id="mesh-1", relay_prefix="", startup_packet_drain_seconds=0
+                )
+            }
         )
         assert not hasattr(renderer, "send")
         assert not hasattr(renderer, "sendText")
@@ -252,7 +266,9 @@ class TestMeshtasticRendererIsolation:
         renderer = MeshtasticRenderer(
             configs={
                 "meshtastic_node": MeshtasticConfig(
-                    adapter_id="meshtastic_node", relay_prefix=""
+                    adapter_id="meshtastic_node",
+                    relay_prefix="",
+                    startup_packet_drain_seconds=0,
                 )
             }
         )
@@ -289,17 +305,17 @@ class TestMeshtasticAdapterIsolation:
     """Meshtastic adapter does not route, plan, or render."""
 
     def test_adapter_has_no_route_method(self) -> None:
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         assert not hasattr(adapter, "route")
 
     def test_adapter_has_no_plan_method(self) -> None:
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         assert not hasattr(adapter, "plan")
 
     def test_adapter_has_no_render_method(self) -> None:
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         assert not hasattr(adapter, "render")
 
@@ -332,7 +348,7 @@ class TestMeshtasticAdapterDeliveryBoundary:
             await adapter.deliver(event)
 
     async def test_real_meshtastic_rejects_canonical_event(self) -> None:
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         event = CanonicalEvent(
             event_id="evt-1",
@@ -365,7 +381,9 @@ class TestMeshtasticNativeRefPersistence:
     async def test_inbound_native_ref_preserved(
         self, make_adapter_context, inbound_collector
     ) -> None:
-        config = MeshtasticConfig(adapter_id="mesh-native")
+        config = MeshtasticConfig(
+            adapter_id="mesh-native", startup_packet_drain_seconds=0
+        )
         adapter = FakeMeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-native")
         await adapter.start(ctx)
@@ -396,7 +414,7 @@ class TestMeshtasticOutboundNativeRefs:
 
     async def test_fake_adapter_returns_delivery_result_with_native_id(self) -> None:
         """Fake adapter returns AdapterHandoffResult with deterministic native_message_id."""
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = FakeMeshtasticAdapter(config)
         result = RenderingResult(
             event_id="evt-1",
@@ -414,7 +432,7 @@ class TestMeshtasticOutboundNativeRefs:
     ) -> None:
         """Real MeshtasticAdapter.deliver() returns AdapterHandoffResult with
         note='locally enqueued' and native_message_id=None (queue-based)."""
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         adapter.ctx = make_adapter_context("mesh-1")
         result = with_attempt_provenance(
@@ -513,7 +531,9 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         self, make_adapter_context
     ) -> None:
         """Real adapter in fake mode never has a real client."""
-        config = MeshtasticConfig(adapter_id="mesh-1", connection_type="fake")
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", connection_type="fake", startup_packet_drain_seconds=0
+        )
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -524,7 +544,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
         self, make_adapter_context
     ) -> None:
         """Real adapter deliver() only enqueues — returns note, no native ID."""
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         adapter.ctx = make_adapter_context("mesh-1")
         result = with_attempt_provenance(
@@ -580,7 +600,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
 
     async def test_idempotent_start_preserves_state(self, make_adapter_context) -> None:
         """Double start does not create a new client or reset state."""
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -590,7 +610,7 @@ class TestMeshtasticAdapterLifecycleBoundaries:
 
     async def test_idempotent_stop_clears_state(self, make_adapter_context) -> None:
         """Double stop does not raise and state remains cleared."""
-        config = MeshtasticConfig(adapter_id="mesh-1")
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-1")
         await adapter.start(ctx)
@@ -611,7 +631,7 @@ class TestMeshtasticCallbackBoundary:
         self, make_adapter_context, inbound_collector
     ) -> None:
         """_on_packet processes and publishes inbound packets."""
-        config = MeshtasticConfig(adapter_id="mesh-cb")
+        config = MeshtasticConfig(adapter_id="mesh-cb", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-cb")
         await adapter.start(ctx)
@@ -632,7 +652,9 @@ class TestMeshtasticCallbackBoundary:
 
     async def test_background_tasks_drained_on_stop(self, make_adapter_context) -> None:
         """All background tasks are drained when stop() is called."""
-        config = MeshtasticConfig(adapter_id="mesh-drain")
+        config = MeshtasticConfig(
+            adapter_id="mesh-drain", startup_packet_drain_seconds=0
+        )
         adapter = MeshtasticAdapter(config)
         ctx = make_adapter_context("mesh-drain")
         await adapter.start(ctx)
@@ -670,7 +692,7 @@ class TestMeshtasticErrorClassification:
         """MeshtasticSendError(transient=False) maps to AdapterPermanentError."""
         from unittest.mock import AsyncMock, MagicMock
 
-        config = MeshtasticConfig(adapter_id="mesh-ec")
+        config = MeshtasticConfig(adapter_id="mesh-ec", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         adapter.ctx = make_adapter_context("mesh-ec")
 
@@ -700,7 +722,7 @@ class TestMeshtasticErrorClassification:
         """MeshtasticSendError(transient=True) maps to AdapterSendError."""
         from unittest.mock import AsyncMock, MagicMock
 
-        config = MeshtasticConfig(adapter_id="mesh-ec")
+        config = MeshtasticConfig(adapter_id="mesh-ec", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         adapter.ctx = make_adapter_context("mesh-ec")
 
@@ -729,7 +751,7 @@ class TestMeshtasticErrorClassification:
         """OSError from queue maps to AdapterSendError(transient=True)."""
         from unittest.mock import AsyncMock, MagicMock
 
-        config = MeshtasticConfig(adapter_id="mesh-ec")
+        config = MeshtasticConfig(adapter_id="mesh-ec", startup_packet_drain_seconds=0)
         adapter = MeshtasticAdapter(config)
         adapter.ctx = make_adapter_context("mesh-ec")
 
@@ -753,7 +775,10 @@ class TestMeshtasticErrorClassification:
     async def test_adapter_not_started_is_permanent(self) -> None:
         """Adapter not started raises AdapterPermanentError."""
         config = MeshtasticConfig(
-            adapter_id="mesh-ec", connection_type="tcp", host="localhost"
+            adapter_id="mesh-ec",
+            connection_type="tcp",
+            host="localhost",
+            startup_packet_drain_seconds=0,
         )
         adapter = MeshtasticAdapter(config)
         # NOT started

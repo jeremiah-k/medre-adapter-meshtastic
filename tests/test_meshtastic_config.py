@@ -260,6 +260,81 @@ class TestMeshtasticConfigInvalid:
         ):
             config.validate()
 
+    # -- startup_packet_drain_seconds validation --
+
+    def test_startup_drain_default_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1")
+        assert config.startup_packet_drain_seconds == 15.0
+        assert config.validate() is config
+
+    def test_startup_drain_zero_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=0)
+        assert config.validate() is config
+
+    def test_startup_drain_positive_int_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=30)
+        assert config.validate() is config
+
+    def test_startup_drain_positive_float_is_valid(self) -> None:
+        config = MeshtasticConfig(adapter_id="mesh-1", startup_packet_drain_seconds=2.5)
+        assert config.validate() is config
+
+    def test_startup_drain_bool_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds=True  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
+    def test_startup_drain_false_bool_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds=False  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
+    def test_startup_drain_negative_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds=-1.0
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
+    def test_startup_drain_string_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds="5"  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
+    def test_startup_drain_none_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds=None  # type: ignore[arg-type]
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
+    def test_startup_drain_inf_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds=float("inf")
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
+    def test_startup_drain_negative_inf_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds=float("-inf")
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
+    def test_startup_drain_nan_raises(self) -> None:
+        config = MeshtasticConfig(
+            adapter_id="mesh-1", startup_packet_drain_seconds=float("nan")
+        )
+        with pytest.raises(MeshtasticConfigError, match="startup_packet_drain_seconds"):
+            config.validate()
+
     def test_max_text_bytes_bool_raises(self) -> None:
         config = MeshtasticConfig(adapter_id="mesh-1", max_text_bytes=True)  # type: ignore[arg-type]
         with pytest.raises(MeshtasticConfigError, match="max_text_bytes"):
@@ -602,3 +677,13 @@ class TestMeshtasticConfigInvalid:
             MeshtasticConfigError, match="relay_prefix must be a str, got float"
         ):
             config.validate()
+
+
+@pytest.mark.parametrize(
+    "field", ["startup_packet_drain_seconds", "startup_backlog_suppress_seconds"]
+)
+@pytest.mark.parametrize("value", [10**400, -(10**400)])
+def test_startup_window_rejects_unrepresentable_integer(field: str, value: int) -> None:
+    config = MeshtasticConfig(adapter_id="mesh-1", **{field: value})
+    with pytest.raises(MeshtasticConfigError, match=f"{field} must be finite"):
+        config.validate()

@@ -332,6 +332,12 @@ class MeshtasticAdapter(AdapterContract):
         self._startup_backlog_packets_seen: int = 0
         self._startup_backlog_packets_suppressed: int = 0
 
+        # Startup packet drain — content-independent drop window armed at
+        # first receive-ready connection; see _check_startup_packet_drain.
+        self._startup_drain_lock = threading.Lock()
+        self._startup_drain_deadline_monotonic: float | None = None
+        self._startup_drain_packets_dropped: int = 0
+
         # Outbound gate suppression counter
         self._outbound_gate_suppressed: int = 0
 
@@ -400,23 +406,43 @@ class MeshtasticAdapter(AdapterContract):
 
         self.ctx = ctx
 
+        # A degraded start may return long before the radio connects. Reset
+        # evidence now, but let the session arm both gates before it subscribes
+        # to the first client's receive callbacks.
+        self._adapter_start_epoch = None
+        self._startup_backlog_packets_seen = 0
+        self._startup_backlog_packets_suppressed = 0
+        with self._startup_drain_lock:
+            self._startup_drain_deadline_monotonic = None
+            self._startup_drain_packets_dropped = 0
+
         # Create session and delegate lifecycle
-        self._session = MeshtasticSession(
+        session = MeshtasticSession(
             config=self._config,
             adapter_id=self.adapter_id,
             platform=self.platform,
             logger=ctx.logger if ctx.logger else None,
             on_health_change=lambda: self._report_native_health(health_epoch),
+            on_initial_connection=lambda: self._arm_startup_backlog(health_epoch),
         )
+        self._session = session
 
-        # Register our inbound packet callback with the session
+        # Capture the owning session here and the generation in its receive
+        # callback, not after dispatch has crossed the session lock.
+        def on_packet(packet: dict[str, Any], generation: int) -> None:
+            self._on_packet(
+                packet, source_session=session, source_generation=generation
+            )
+
         try:
-            await self._session.start(message_callback=self._on_packet)
+            await session.start(generation_callback=on_packet)
         except asyncio.CancelledError:
             # Clear adapter-owned fields synchronously — no await.
             self._session = None
             self.ctx = None
             self._start_time = None
+            self._adapter_start_epoch = None
+            self._startup_drain_deadline_monotonic = None
             raise
         except Exception:
             # Best-effort cleanup of partially-started session.
@@ -428,12 +454,9 @@ class MeshtasticAdapter(AdapterContract):
             self._session = None
             self.ctx = None
             self._start_time = None
+            self._adapter_start_epoch = None
+            self._startup_drain_deadline_monotonic = None
             raise
-
-        # Session-scoped backlog baseline — set after the bounded startup wait.
-        self._adapter_start_epoch = time.time()
-        self._startup_backlog_packets_seen = 0
-        self._startup_backlog_packets_suppressed = 0
 
         self._loop = asyncio.get_running_loop()
         self._drain_task = asyncio.create_task(self._process_queue())
@@ -815,7 +838,7 @@ class MeshtasticAdapter(AdapterContract):
                 classification.packet_id,
             )
         elif action == "relay":
-            # Preview text from the packet's decoded text for relay log
+            # Log eligibility after startup gates, not delivery confirmation.
             _logger.info(
                 "MeshtasticAdapter %s: packet relayed packet_id=%s from_id=%s",
                 self.adapter_id,
@@ -849,6 +872,88 @@ class MeshtasticAdapter(AdapterContract):
             return self._session.get_node_info(from_id)
         except Exception:
             return None  # Non-critical enrichment; names are best-effort
+
+    def _arm_startup_backlog(self, epoch: int) -> None:
+        """Set both baselines before the initial native receive subscription.
+
+        A late hook from a retired adapter lifecycle must not re-arm it.
+        Failed initial subscription attempts may re-arm; counters are reset
+        only at adapter start so already recorded drops are not lost.
+        """
+        if epoch != self._health_epoch or self.ctx is None:
+            return
+        self._adapter_start_epoch = time.time()
+        window = float(self._config.startup_packet_drain_seconds)
+        with self._startup_drain_lock:
+            self._startup_drain_deadline_monotonic = (
+                time.monotonic() + window if window > 0 else None
+            )
+
+    def _check_startup_packet_drain(self, packet_id: Any) -> bool:
+        """Check whether a relay-classified packet falls inside the startup drain window.
+
+        The window is armed before the first receive-ready connection and is
+        content-independent: while ``time.monotonic()`` is before the
+        deadline, every relay-classified packet is dropped without
+        consulting ``rxTime``.  This covers the backlog radios dump from
+        their FROMRADIO queue on connect (BLE in particular), including
+        packets whose ``rxTime`` is missing, malformed, or skewed by an
+        unsynced node clock — cases the rxTime-based startup-backlog
+        suppression cannot judge.
+
+        Expiry is detected lazily on evaluation: the first check at or
+        after the deadline clears the window, emits a single INFO
+        completion line with the dropped count, and the window stays
+        closed for the rest of the session.  A configured window of ``0``
+        leaves the deadline unarmed.  The per-packet DEBUG drop log follows
+        the startup-backlog suppression log format.
+
+        Parameters
+        ----------
+        packet_id:
+            The packet ID for safe logging.
+
+        Returns
+        -------
+        bool
+            ``True`` while the drain window is open (the packet should be
+            dropped); ``False`` once the window has expired or is disabled.
+        """
+        # Both the SDK reader and the loop's simulated ingress can evaluate
+        # this gate. Retire the deadline and capture the count atomically;
+        # log outside the lock to avoid blocking the other ingress path.
+        with self._startup_drain_lock:
+            deadline = self._startup_drain_deadline_monotonic
+            if deadline is None:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._startup_drain_deadline_monotonic = None
+            else:
+                self._startup_drain_packets_dropped += 1
+            dropped = self._startup_drain_packets_dropped
+
+        ctx = self.ctx
+        if remaining <= 0:
+            if ctx is not None:
+                ctx.logger.info(
+                    "MeshtasticAdapter %s: startup packet drain window ended - "
+                    "accepting packets (dropped=%d)",
+                    self.adapter_id,
+                    dropped,
+                )
+            return False
+
+        if ctx is not None:
+            ctx.logger.debug(
+                "MeshtasticAdapter %s: startup packet drain dropped "
+                "transport=meshtastic packet_id=%s remaining=%.3fs window=%s",
+                self.adapter_id,
+                packet_id,
+                remaining,
+                self._config.startup_packet_drain_seconds,
+            )
+        return True
 
     def _check_startup_backlog_suppress(
         self, packet: dict[str, Any], packet_id: Any
@@ -904,7 +1009,13 @@ class MeshtasticAdapter(AdapterContract):
 
         return False
 
-    def _on_packet(self, packet: dict[str, Any]) -> None:
+    def _on_packet(
+        self,
+        packet: dict[str, Any],
+        *,
+        source_session: MeshtasticSession | None = None,
+        source_generation: int | None = None,
+    ) -> None:
         """Process an inbound Meshtastic packet.
 
         Classifies the packet, decodes it via the codec, and publishes
@@ -919,6 +1030,9 @@ class MeshtasticAdapter(AdapterContract):
         ----------
         packet:
             Raw Meshtastic packet dict.
+        source_session / source_generation:
+            Native receive ownership captured at interface validation. Direct
+            test injection may omit both; SDK dispatch supplies both.
         """
         # Inbound-path lifecycle guard: reject packets arriving after
         # stop() has cleared _started.  This check runs before any
@@ -930,14 +1044,28 @@ class MeshtasticAdapter(AdapterContract):
 
         try:
             reservations = self._ingress_reservations
-            session = self._session
-            connection_generation = (
-                session.connection_generation if session is not None else None
-            )
+            if source_session is not None:
+                if (
+                    self._session is not source_session
+                    or source_generation is None
+                    or not source_session.is_connection_generation_current(
+                        source_generation
+                    )
+                ):
+                    return
+                session = source_session
+                connection_generation = source_generation
+            else:
+                # Direct test injection retains the existing callback API.
+                session = self._session
+                connection_generation = (
+                    session.connection_generation if session is not None else None
+                )
             own_node_id = session.node_id if session is not None else None
             classification = self._classifier.classify(packet, own_node_id=own_node_id)
             self._increment_classifier_counters(classification)
-            self._log_classification(classification)
+            if classification.action != "relay":
+                self._log_classification(classification)
 
             # Native routing results (ACK/NAK) are classified as ack or
             # deferred routing packets; offer them to send correlation
@@ -953,11 +1081,20 @@ class MeshtasticAdapter(AdapterContract):
             if classification.action != "relay":
                 return
 
+            # Startup packet drain gate — content-independent, evaluated
+            # before the rxTime-based suppression check, which remains as
+            # defense-in-depth behind it.  Drain-dropped packets do not
+            # enter the rxTime counters.
+            if self._check_startup_packet_drain(classification.packet_id):
+                return
+
             # Startup backlog suppression gate
             self._startup_backlog_packets_seen += 1
             if self._check_startup_backlog_suppress(packet, classification.packet_id):
                 self._startup_backlog_packets_suppressed += 1
                 return
+
+            self._log_classification(classification)
 
             # Reserve immediately after the relay and startup-backlog gates.
             # Refused packets never pay for node enrichment or codec decode
@@ -1166,7 +1303,8 @@ class MeshtasticAdapter(AdapterContract):
             own_node_id=(session.node_id if session is not None else None),
         )
         self._increment_classifier_counters(classification)
-        self._log_classification(classification)
+        if classification.action != "relay":
+            self._log_classification(classification)
 
         # Same send-correlation hook as the live callback path so tests
         # exercising simulate_inbound observe identical behavior.
@@ -1182,11 +1320,20 @@ class MeshtasticAdapter(AdapterContract):
         if classification.action != "relay":
             return
 
+        # Startup packet drain gate — content-independent, evaluated before
+        # the rxTime-based suppression check, which remains as
+        # defense-in-depth behind it.  Drain-dropped packets do not enter
+        # the rxTime counters.
+        if self._check_startup_packet_drain(classification.packet_id):
+            return
+
         # Startup backlog suppression gate
         self._startup_backlog_packets_seen += 1
         if self._check_startup_backlog_suppress(packet, classification.packet_id):
             self._startup_backlog_packets_suppressed += 1
             return
+
+        self._log_classification(classification)
 
         # Enrich with node info (same path as _on_packet)
         node_info = self._enrich_with_node_info(packet)
@@ -1262,6 +1409,10 @@ class MeshtasticAdapter(AdapterContract):
             "startup_backlog_packets_suppressed": self._startup_backlog_packets_suppressed,
             "startup_backlog_suppress_seconds": self._config.startup_backlog_suppress_seconds,
             "adapter_start_epoch": self._adapter_start_epoch,
+            # Startup packet drain — packets dropped by the content-
+            # independent connect window before reaching the rxTime gate.
+            "startup_drain_packets_dropped": self._startup_drain_packets_dropped,
+            "startup_packet_drain_seconds": self._config.startup_packet_drain_seconds,
             # Outbound gate
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,

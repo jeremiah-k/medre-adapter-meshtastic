@@ -51,10 +51,16 @@ class TestMeshtasticSessionCallbackBridge:
     ) -> None:
         """_on_packet creates a tracked asyncio task that publishes inbound
         through the pipeline."""
-        mesh_config = MeshtasticConfig(adapter_id="cb-mesh-in", connection_type="fake")
+        mesh_config = MeshtasticConfig(
+            adapter_id="cb-mesh-in",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
-        fake_config = MeshtasticConfig(adapter_id="cb-fake-out")
+        fake_config = MeshtasticConfig(
+            adapter_id="cb-fake-out", startup_packet_drain_seconds=0
+        )
         fake_adapter = FakeMeshtasticAdapter(fake_config)
 
         route = Route(
@@ -73,7 +79,9 @@ class TestMeshtasticSessionCallbackBridge:
             MeshtasticRenderer(
                 configs={
                     "cb-fake-out": MeshtasticConfig(
-                        adapter_id="cb-fake-out", relay_prefix=""
+                        adapter_id="cb-fake-out",
+                        relay_prefix="",
+                        startup_packet_drain_seconds=0,
                     )
                 }
             ),
@@ -125,7 +133,9 @@ class TestMeshtasticSessionCallbackBridge:
         """_on_packet silently drops non-text packets without creating
         background tasks."""
         mesh_config = MeshtasticConfig(
-            adapter_id="cb-drop-mesh", connection_type="fake"
+            adapter_id="cb-drop-mesh",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
         )
         mesh_adapter = MeshtasticAdapter(mesh_config)
 
@@ -193,7 +203,10 @@ class TestMeshtasticSendOneBridge:
     ) -> None:
         """send_one() dequeues and sends via the monkeypatched client."""
         config = MeshtasticConfig(
-            adapter_id="sendone-mesh", connection_type="tcp", host="1.2.3.4"
+            adapter_id="sendone-mesh",
+            connection_type="tcp",
+            host="1.2.3.4",
+            startup_packet_drain_seconds=0,
         )
         adapter = MeshtasticAdapter(config)
 
@@ -269,7 +282,11 @@ class TestMeshtasticSendOneBridge:
         self, make_adapter_context
     ) -> None:
         """send_one() returns None in fake mode (no real client)."""
-        config = MeshtasticConfig(adapter_id="sendone-noclient", connection_type="fake")
+        config = MeshtasticConfig(
+            adapter_id="sendone-noclient",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
         adapter = MeshtasticAdapter(config)
         # No session startup is needed for the no-client branch. Install only
         # the deferred-feedback context required for local queue admission.

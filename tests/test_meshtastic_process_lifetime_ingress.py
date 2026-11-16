@@ -312,7 +312,11 @@ async def test_restart_cycles_start_full_stage_exact_and_retire_completely() -> 
     the primary evidence.
     """
     adapter = MeshtasticAdapter(
-        MeshtasticConfig(adapter_id="process-lifetime-qual", connection_type="fake")
+        MeshtasticConfig(
+            adapter_id="process-lifetime-qual",
+            connection_type="fake",
+            startup_packet_drain_seconds=0,
+        )
     )
 
     # Whole-process memory guard: ownership rule — tracing is stopped again
