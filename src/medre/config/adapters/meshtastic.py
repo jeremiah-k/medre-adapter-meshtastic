@@ -57,6 +57,17 @@ class MeshtasticConfig:
         Minimum delay between outbound messages (pacing).
     startup_backlog_suppress_seconds:
         Seconds after start to suppress stale backlog packets.
+    startup_packet_drain_seconds:
+        Content-independent startup drain window in seconds.  While the
+        window is open after a successful start, every relay-classified
+        inbound packet is dropped before decode and publish, regardless of
+        ``rxTime``.  This drains the packet backlog the radio dumps from
+        its FROMRADIO queue on connect (BLE in particular), including
+        packets whose ``rxTime`` is missing, malformed, or skewed by an
+        unsynced node clock.  Behavioral reference: mmrelay's
+        ``STARTUP_PACKET_DRAIN_SECS`` (``15.0``).  ``0`` disables the
+        drain.  Non-relay classifications (nodeinfo, routing correlation,
+        enrichment) are not gated.
     sync_timeout_ms:
         Initial connection wait budget in milliseconds. Default: 30000. The
         same value bounds SDK connection/configuration phases. Expiry leaves
@@ -180,6 +191,7 @@ class MeshtasticConfig:
     channel_mapping: dict[int, str] = field(default_factory=dict)
     message_delay_seconds: float = 2.2
     startup_backlog_suppress_seconds: float = 5.0
+    startup_packet_drain_seconds: float = 15.0
     sync_timeout_ms: int = 30000
     relay_prefix: str | None = None
     max_text_bytes: int = 227
@@ -268,6 +280,22 @@ class MeshtasticConfig:
             raise MeshtasticConfigError(
                 f"startup_backlog_suppress_seconds must be >= 0, "
                 f"got {self.startup_backlog_suppress_seconds}"
+            )
+        if isinstance(self.startup_packet_drain_seconds, bool):
+            raise MeshtasticConfigError(
+                "startup_packet_drain_seconds must be an int or float, got bool"
+            )
+        if not isinstance(self.startup_packet_drain_seconds, (int, float)):
+            raise MeshtasticConfigError(
+                f"startup_packet_drain_seconds must be an int or float, "
+                f"got {type(self.startup_packet_drain_seconds).__name__}"
+            )
+        if not math.isfinite(self.startup_packet_drain_seconds):
+            raise MeshtasticConfigError("startup_packet_drain_seconds must be finite")
+        if self.startup_packet_drain_seconds < 0:
+            raise MeshtasticConfigError(
+                f"startup_packet_drain_seconds must be >= 0, "
+                f"got {self.startup_packet_drain_seconds}"
             )
         if isinstance(self.queue_send_max_attempts, bool):
             raise MeshtasticConfigError(
