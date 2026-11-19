@@ -355,9 +355,9 @@ class MeshtasticSession:
     @property
     def node_id(self) -> str | None:
         """The session's own node ID in the format matching ``fromId`` in inbound
-        packets (typically ``"!" + lowercase_hex(myNodeNum)``, e.g. ``"!a1b2c3d4"``).
+        packets (typically ``"!" + lowercase_hex(my_node_num)``, e.g. ``"!a1b2c3d4"``).
 
-        Populated from ``interface.myInfo.myNodeNum`` after every successful
+        Populated from ``interface.myInfo.my_node_num`` after every successful
         connect (and re-connect).  If ``myInfo`` is not yet available at
         connect time, the ``_on_receive`` callback lazily refreshes on each
         inbound packet until the value is obtained.  Returns ``None`` when
@@ -1191,7 +1191,7 @@ class MeshtasticSession:
             self._subscribed_connection_lost = False
 
     def _refresh_node_id(self) -> None:
-        """Populate self._node_id from interface.myInfo.myNodeNum when available.
+        """Populate self._node_id from interface.myInfo.my_node_num when available.
 
         Called after every successful connect (and re-connect) and lazily
         from ``_on_receive`` when ``_node_id`` is still ``None`` (late
@@ -1204,7 +1204,7 @@ class MeshtasticSession:
             if client is None:
                 return
             my_info = getattr(client, "myInfo", None)
-            node_num = getattr(my_info, "myNodeNum", None)
+            node_num = getattr(my_info, "my_node_num", None)
             if isinstance(node_num, int) and node_num >= 0:
                 self._node_id = f"!{node_num:08x}"
 

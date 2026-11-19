@@ -50,7 +50,7 @@ def build_startup_info(
     """Build the startup-info mapping from held state.
 
     ``node_id`` is the session's own node address (``"!"`` plus lowercase
-    hex of the radio's ``myNodeNum``) when the connected radio's
+    hex of the radio's ``my_node_num``) when the connected radio's
     ``myInfo`` has already been gathered; it is omitted when unavailable.
     The node identity forms the first row and the configured endpoint
     details the second, per the contract's row guidance.
