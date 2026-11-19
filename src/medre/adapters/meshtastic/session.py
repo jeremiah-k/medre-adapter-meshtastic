@@ -374,6 +374,11 @@ class MeshtasticSession:
         with self._client_state_lock:
             return self._node_id
 
+    def startup_identity_snapshot(self) -> tuple[str | None, str | None, str | None]:
+        """Read one generation of held node and release facts without SDK I/O."""
+        with self._client_state_lock:
+            return self._node_id, self._firmware_version, self._board_model
+
     @property
     def firmware_version(self) -> str | None:
         """The connected radio's firmware release string, when held.

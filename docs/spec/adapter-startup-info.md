@@ -23,7 +23,7 @@ The second row carries the configured endpoint: the connection type and
 its endpoint detail (TCP host and port, serial device, or BLE address),
 followed by the held device release facts — the radio's firmware
 release (label `firmware`) and board model (label `board`) — after the
-endpoint detail. Core renders at most two rows, so the release facts
+endpoint detail. The provider chooses two rows, so the release facts
 share the endpoint row.
 
 The device release facts are connect-flow state capture, not new

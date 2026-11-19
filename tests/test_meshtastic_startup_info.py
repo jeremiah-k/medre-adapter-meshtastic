@@ -347,9 +347,10 @@ async def test_started_adapter_emits_held_facts_through_core(
         ]
         assert info.fields[0].value == "!a4b3c2d1"
         assert info.fields[1].value == "fake"
-        assert render_startup_info_block("meshtastic.mesh-1  ready", info) == (
-            "meshtastic.mesh-1  ready\n" "  !a4b3c2d1\n" "  link fake"
-        )
+        lines = render_startup_info_block("meshtastic.mesh-1  ready", info).splitlines()
+        assert lines[0] == "meshtastic.mesh-1  ready"
+        assert lines[1] in {"  !a4b3c2d1", "  node id !a4b3c2d1"}
+        assert lines[2:] == ["  link fake"]
     finally:
         await adapter.stop()
 
@@ -375,11 +376,11 @@ async def test_held_device_release_facts_render_through_core(
         assert info.fields[1].value == "fake"
         assert info.fields[2].value == "2.6.4.abc"
         assert info.fields[3].value == "RAK4631"
-        assert render_startup_info_block("meshtastic.mesh-1  ready", info) == (
-            "meshtastic.mesh-1  ready\n"
-            "  !a4b3c2d1\n"
-            "  link fake · firmware 2.6.4.abc · board RAK4631"
-        )
+        lines = render_startup_info_block("meshtastic.mesh-1  ready", info).splitlines()
+        assert lines[0] == "meshtastic.mesh-1  ready"
+        # The provider leaves this label unspecified; both core renderers are supported.
+        assert lines[1] in {"  !a4b3c2d1", "  node id !a4b3c2d1"}
+        assert lines[2:] == ["  link fake · firmware 2.6.4.abc · board RAK4631"]
     finally:
         await adapter.stop()
 
@@ -542,4 +543,63 @@ async def test_replacement_client_does_not_inherit_previous_identity_facts(
             for fact in row
         )
     finally:
+        await adapter.stop()
+
+
+async def test_startup_snapshot_cannot_mix_replacement_generations(
+    make_adapter_context,
+) -> None:
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    await adapter.start(make_adapter_context("mesh-1"))
+    session = adapter._session
+    assert session is not None
+    _hold_device_facts(adapter)
+    lock = session._client_state_lock
+    replaced = False
+
+    class ReplaceAfterRead:
+        def __enter__(self):
+            return lock.__enter__()
+
+        def __exit__(self, *exc):
+            nonlocal replaced
+            result = lock.__exit__(*exc)
+            if not replaced:
+                replaced = True
+                session._activate_client(
+                    SimpleNamespace(
+                        myInfo=SimpleNamespace(my_node_num=0xDEADBEEF),
+                        metadata=SimpleNamespace(
+                            firmware_version="3.0.0", hw_model="HELTEC_V3"
+                        ),
+                    )
+                )
+                session._refresh_node_id()
+            return result
+
+    def facts():
+        return {
+            fact["name"]: fact["value"]
+            for row in adapter.startup_info()["rows"]
+            for fact in row
+        }
+
+    session._client_state_lock = ReplaceAfterRead()
+    try:
+        before = facts()
+        assert replaced
+        assert (
+            before["node_id"],
+            before["firmware_version"],
+            before["board_model"],
+        ) == ("!a4b3c2d1", "2.6.4.abc", "RAK4631")
+        after = facts()
+        assert (after["node_id"], after["firmware_version"], after["board_model"]) == (
+            "!deadbeef",
+            "3.0.0",
+            "HELTEC_V3",
+        )
+    finally:
+        session._client_state_lock = lock
+        session._client = None
         await adapter.stop()

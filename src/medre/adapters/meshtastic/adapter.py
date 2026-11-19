@@ -1736,9 +1736,11 @@ class MeshtasticAdapter(AdapterContract):
         omitted rather than probed.
         """
         session = self._session
-        node_id = session.node_id if session is not None else None
-        firmware_version = session.firmware_version if session is not None else None
-        board_model = session.board_model if session is not None else None
+        node_id, firmware_version, board_model = (
+            session.startup_identity_snapshot()
+            if session is not None
+            else (None, None, None)
+        )
         return build_startup_info(
             self._config,
             node_id=node_id,
