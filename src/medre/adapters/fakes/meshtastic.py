@@ -54,6 +54,7 @@ from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
+from medre.adapters.meshtastic.startup_info import build_startup_info
 from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _logger = logging.getLogger(__name__)
@@ -352,6 +353,14 @@ class FakeMeshtasticAdapter(AdapterContract):
             "outbound_mode": self._config.outbound_mode,
             "outbound_gate_suppressed": self._outbound_gate_suppressed,
         }
+
+    def startup_info(self) -> dict[str, Any]:
+        """Startup facts mirroring the real adapter's pure-read provider.
+
+        The fake owns no session, so no node address is ever reported;
+        only configured endpoint facts appear.
+        """
+        return build_startup_info(self._config)
 
     # -- Outbound delivery --------------------------------------------------
 
