@@ -296,6 +296,7 @@ class MeshtasticSession:
         """Install a new SDK client and advance the connection generation."""
         with self._client_state_lock:
             self._client = client
+            self._node_id = None
             self._connection_generation += 1
 
     def _prepare_initial_ingress(self) -> None:
@@ -362,7 +363,8 @@ class MeshtasticSession:
         inbound packet until the value is obtained.  Returns ``None`` when
         the client is not connected or ``myInfo`` is not yet available.
         """
-        return self._node_id
+        with self._client_state_lock:
+            return self._node_id
 
     @property
     def channel_count(self) -> int:
@@ -488,8 +490,9 @@ class MeshtasticSession:
         conn = self._config.connection_type
 
         if conn == "fake":
-            self._client = None
-            self._node_id = None
+            with self._client_state_lock:
+                self._client = None
+                self._node_id = None
             self._prepare_initial_ingress()
             self._initial_receive_ready = True
         else:
