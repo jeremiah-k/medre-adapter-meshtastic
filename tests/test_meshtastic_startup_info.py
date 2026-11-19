@@ -11,6 +11,8 @@ omitted, never probed.
 from __future__ import annotations
 
 import ast
+import asyncio
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -251,3 +253,80 @@ def test_config_error_surface_is_not_part_of_startup_info() -> None:
     payload = adapter.startup_info()
     names = [f["name"] for row in payload["rows"] for f in row]
     assert names == ["connection_type"]
+
+
+@pytest.mark.parametrize("next_node", [0xDEADBEEF, None])
+async def test_startup_info_waits_for_completed_node_refresh(
+    make_adapter_context, next_node: int | None
+) -> None:
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    await adapter.start(make_adapter_context("mesh-1"))
+    session = adapter._session
+    assert session is not None
+    _hold_node_id(adapter)
+    paused = threading.Event()
+    resume = threading.Event()
+    attempted = threading.Event()
+    lock = session._client_state_lock
+
+    class ObservedLock:
+        def __enter__(self):
+            if paused.is_set():
+                attempted.set()
+            return lock.__enter__()
+
+        def __exit__(self, *exc):
+            return lock.__exit__(*exc)
+
+    class PausedClient:
+        @property
+        def myInfo(self):
+            paused.set()
+            assert resume.wait(5), "refresh release not signalled"
+            return SimpleNamespace(myNodeNum=next_node)
+
+    session._client_state_lock = ObservedLock()
+    session._client = PausedClient()
+    refresh = asyncio.create_task(asyncio.to_thread(session._refresh_node_id))
+    reader = None
+    try:
+        assert await asyncio.to_thread(paused.wait, 3)
+        reader = asyncio.create_task(asyncio.to_thread(adapter.startup_info))
+        assert await asyncio.to_thread(
+            attempted.wait, 3
+        ), "snapshot did not acquire client lock"
+        assert not reader.done()
+        resume.set()
+        await refresh
+        rows = (await reader)["rows"]
+        assert [
+            fact["value"] for row in rows for fact in row if fact["name"] == "node_id"
+        ] == ([] if next_node is None else ["!deadbeef"])
+    finally:
+        resume.set()
+        await asyncio.gather(
+            refresh, *([reader] if reader else []), return_exceptions=True
+        )
+        session._client_state_lock = lock
+        session._client = None
+        await adapter.stop()
+
+
+async def test_replacement_client_does_not_inherit_previous_node_id(
+    make_adapter_context,
+) -> None:
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    await adapter.start(make_adapter_context("mesh-1"))
+    try:
+        _hold_node_id(adapter)
+        session = adapter._session
+        assert session is not None
+        session._activate_client(SimpleNamespace(myInfo=None))
+        assert session.node_id is None
+        assert all(
+            fact["name"] != "node_id"
+            for row in adapter.startup_info()["rows"]
+            for fact in row
+        )
+    finally:
+        await adapter.stop()

@@ -12,7 +12,8 @@ The provider MUST format facts the adapter already holds and MUST NOT
 perform device or radio I/O, acquire resources, or mutate session
 state. A synchronous callable is safe on any worker thread: the node
 address is an atomic snapshot of session state held under the session's
-client lock.
+client lock. Refresh and client replacement use that same lock; a
+replacement client cannot inherit the previous client's node address.
 
 The first row carries the node identity when held: the session's own
 node address (`!` plus lowercase hex of the radio's `myNodeNum`),
