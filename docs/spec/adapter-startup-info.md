@@ -16,7 +16,7 @@ client lock. Refresh and client replacement use that same lock; a
 replacement client cannot inherit the previous client's node address.
 
 The first row carries the node identity when held: the session's own
-node address (`!` plus lowercase hex of the radio's `myNodeNum`),
+node address (`!` plus lowercase hex of the radio's `my_node_num`),
 gathered from the connected radio's `myInfo` after client activation.
 The second row carries the configured endpoint: the connection type and
 its endpoint detail (TCP host and port, serial device, or BLE address).

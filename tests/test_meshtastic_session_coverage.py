@@ -3,7 +3,7 @@
 Covers uncovered lines in session.py:
 - get_node_info (lines 229-249): node lookup via SDK client.nodes dict
 - _create_client (lines 646-676): TCP, serial, BLE, and unsupported types
-- _refresh_node_id (lines 730-742): populate _node_id from interface.myInfo.myNodeNum
+- _refresh_node_id (lines 730-742): populate _node_id from interface.myInfo.my_node_num
 - _on_receive lazy refresh: late myInfo activates self-echo without reconnect
 """
 
@@ -295,15 +295,15 @@ class TestCreateClientUnsupported:
 class TestRefreshNodeId:
     """MeshtasticSession._refresh_node_id edge cases.
 
-    _refresh_node_id reads client.myInfo.myNodeNum and formats it as
+    _refresh_node_id reads client.myInfo.my_node_num and formats it as
     "!{node_num:08x}".  It guards against missing attributes, non-int
     values, and negative node numbers.
     """
 
     def test_happy_path_formats_hex(self) -> None:
-        """myInfo.myNodeNum = 0x12345678 → _node_id == '!12345678'."""
+        """myInfo.my_node_num = 0x12345678 → _node_id == '!12345678'."""
         my_info = MagicMock()
-        my_info.myNodeNum = 0x12345678
+        my_info.my_node_num = 0x12345678
         client = MagicMock()
         client.myInfo = my_info
         session = _make_session(client=client)
@@ -332,9 +332,9 @@ class TestRefreshNodeId:
         assert session._node_id is None
 
     def test_my_node_num_non_int(self) -> None:
-        """myInfo.myNodeNum = 'garbage' → _node_id stays None."""
+        """myInfo.my_node_num = 'garbage' → _node_id stays None."""
         my_info = MagicMock()
-        my_info.myNodeNum = "garbage"
+        my_info.my_node_num = "garbage"
         client = MagicMock()
         client.myInfo = my_info
         session = _make_session(client=client)
@@ -344,9 +344,9 @@ class TestRefreshNodeId:
         assert session._node_id is None
 
     def test_my_node_num_negative(self) -> None:
-        """myInfo.myNodeNum = -1 → _node_id stays None."""
+        """myInfo.my_node_num = -1 → _node_id stays None."""
         my_info = MagicMock()
-        my_info.myNodeNum = -1
+        my_info.my_node_num = -1
         client = MagicMock()
         client.myInfo = my_info
         session = _make_session(client=client)
@@ -356,9 +356,9 @@ class TestRefreshNodeId:
         assert session._node_id is None
 
     def test_my_node_num_zero(self) -> None:
-        """myInfo.myNodeNum = 0 → _node_id == '!00000000'."""
+        """myInfo.my_node_num = 0 → _node_id == '!00000000'."""
         my_info = MagicMock()
-        my_info.myNodeNum = 0
+        my_info.my_node_num = 0
         client = MagicMock()
         client.myInfo = my_info
         session = _make_session(client=client)
@@ -379,7 +379,7 @@ class TestRefreshNodeId:
     def test_refresh_overwrites_previous_value(self) -> None:
         """Subsequent call with valid client overwrites prior _node_id."""
         my_info = MagicMock()
-        my_info.myNodeNum = 0xAABBCCDD
+        my_info.my_node_num = 0xAABBCCDD
         client = MagicMock()
         client.myInfo = my_info
         session = _make_session(client=client)
@@ -572,7 +572,7 @@ class TestReconnectSuccessPath:
 class TestOnReceiveLazyNodeIdRefresh:
     """_on_receive lazily refreshes _node_id when it is still None.
 
-    When ``interface.myInfo.myNodeNum`` was not available at connect
+    When ``interface.myInfo.my_node_num`` was not available at connect
     time, the first inbound packet should trigger a refresh so that
     self-echo detection can activate without a reconnect.
     """
@@ -580,7 +580,7 @@ class TestOnReceiveLazyNodeIdRefresh:
     def test_lazy_refresh_when_node_id_none(self) -> None:
         """_on_receive triggers _refresh_node_id when _node_id is None."""
         my_info = MagicMock()
-        my_info.myNodeNum = 0xDEADBEEF
+        my_info.my_node_num = 0xDEADBEEF
         client = MagicMock()
         client.myInfo = my_info
 
@@ -598,7 +598,7 @@ class TestOnReceiveLazyNodeIdRefresh:
     def test_no_refresh_when_node_id_already_set(self) -> None:
         """_on_receive skips refresh when _node_id is already populated."""
         my_info = MagicMock()
-        my_info.myNodeNum = 0xDEADBEEF
+        my_info.my_node_num = 0xDEADBEEF
         client = MagicMock()
         client.myInfo = my_info
 
@@ -654,7 +654,7 @@ class TestOnReceiveLazyNodeIdRefresh:
 
         # myInfo becomes available between packets
         my_info = MagicMock()
-        my_info.myNodeNum = 0xCAFEBABE
+        my_info.my_node_num = 0xCAFEBABE
         client.myInfo = my_info
 
         # Second packet: lazy refresh succeeds

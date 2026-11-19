@@ -14,6 +14,7 @@ import ast
 import asyncio
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -32,6 +33,7 @@ from medre_meshtastic_tests.helpers.meshtastic import make_meshtastic_config
 from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic import startup_info as startup_info_module
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
+from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _EMITTED_AT = "2026-11-19T00:00:00+00:00"
@@ -42,11 +44,11 @@ def _hold_node_id(adapter: MeshtasticAdapter, node_num: int = 0xA4B3C2D1) -> Non
 
     Mirrors the production path without any radio: after client
     activation the session refreshes ``_node_id`` from
-    ``interface.myInfo.myNodeNum``.  Only in-memory fake state is used.
+    ``interface.myInfo.my_node_num``.  Only in-memory fake state is used.
     """
     session = adapter._session
     assert session is not None
-    session._client = SimpleNamespace(myInfo=SimpleNamespace(myNodeNum=node_num))
+    session._client = SimpleNamespace(myInfo=SimpleNamespace(my_node_num=node_num))
     session._refresh_node_id()
 
 
@@ -63,6 +65,23 @@ def test_real_adapter_exposes_discoverable_startup_info() -> None:
 def test_fake_adapter_exposes_discoverable_startup_info() -> None:
     adapter = FakeMeshtasticAdapter(adapter_id="fake_mesh")
     assert startup_info_callable(adapter) is not None
+
+
+@pytest.mark.meshtastic_sdk
+def test_startup_info_reports_node_id_from_sdk_my_info() -> None:
+    mesh_pb2 = import_module("meshtastic.protobuf.mesh_pb2")
+    config = make_meshtastic_config()
+    adapter = MeshtasticAdapter(config)
+    session = MeshtasticSession(config, "mesh-1", "meshtastic")
+    session._activate_client(
+        SimpleNamespace(myInfo=mesh_pb2.MyNodeInfo(my_node_num=0xA4B3C2D1))
+    )
+    session._refresh_node_id()
+    adapter._session = session
+
+    assert adapter.startup_info()["rows"][0] == [
+        {"name": "node_id", "value": "!a4b3c2d1"}
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +302,7 @@ async def test_startup_info_waits_for_completed_node_refresh(
         def myInfo(self):
             paused.set()
             assert resume.wait(5), "refresh release not signalled"
-            return SimpleNamespace(myNodeNum=next_node)
+            return SimpleNamespace(my_node_num=next_node)
 
     session._client_state_lock = ObservedLock()
     session._client = PausedClient()
