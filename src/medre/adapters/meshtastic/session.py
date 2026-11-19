@@ -178,6 +178,8 @@ class MeshtasticSession:
         # Diagnostics
         "_last_packet_time",
         "_node_id",
+        "_firmware_version",
+        "_board_model",
         "_channel_count",
         "_transient_delivery_failures",
         "_permanent_delivery_failures",
@@ -231,6 +233,8 @@ class MeshtasticSession:
         # Diagnostics
         self._last_packet_time: float | None = None
         self._node_id: str | None = None
+        self._firmware_version: str | None = None
+        self._board_model: str | None = None
         self._channel_count: int = 0
         self._transient_delivery_failures: int = 0
         self._permanent_delivery_failures: int = 0
@@ -297,6 +301,8 @@ class MeshtasticSession:
         with self._client_state_lock:
             self._client = client
             self._node_id = None
+            self._firmware_version = None
+            self._board_model = None
             self._connection_generation += 1
 
     def _prepare_initial_ingress(self) -> None:
@@ -334,6 +340,8 @@ class MeshtasticSession:
             client = self._client
             self._client = None
             self._node_id = None
+            self._firmware_version = None
+            self._board_model = None
             self._connection_generation += 1
             return client
 
@@ -365,6 +373,31 @@ class MeshtasticSession:
         """
         with self._client_state_lock:
             return self._node_id
+
+    @property
+    def firmware_version(self) -> str | None:
+        """The connected radio's firmware release string, when held.
+
+        Populated from the radio's ``DeviceMetadata``
+        (``interface.metadata``), which the SDK stores from the same
+        initial config exchange that delivers ``myInfo`` — no additional
+        request is issued.  Captured atomically with the node identity
+        under the client-state lock and reset whenever the client is
+        replaced or lost.  ``None`` when not yet delivered.
+        """
+        with self._client_state_lock:
+            return self._firmware_version
+
+    @property
+    def board_model(self) -> str | None:
+        """The connected radio's board/model name, when held.
+
+        Derived from ``DeviceMetadata.hw_model`` of the same delivered
+        metadata payload as the firmware release.  ``None`` when the
+        payload is absent or carries no usable hardware model.
+        """
+        with self._client_state_lock:
+            return self._board_model
 
     @property
     def channel_count(self) -> int:
@@ -493,6 +526,8 @@ class MeshtasticSession:
             with self._client_state_lock:
                 self._client = None
                 self._node_id = None
+                self._firmware_version = None
+                self._board_model = None
             self._prepare_initial_ingress()
             self._initial_receive_ready = True
         else:
@@ -1191,15 +1226,26 @@ class MeshtasticSession:
             self._subscribed_connection_lost = False
 
     def _refresh_node_id(self) -> None:
-        """Populate self._node_id from interface.myInfo.my_node_num when available.
+        """Populate the held node address and device release facts from client state.
 
         Called after every successful connect (and re-connect) and lazily
-        from ``_on_receive`` when ``_node_id`` is still ``None`` (late
-        myInfo).  Safe to call multiple times; refreshes from current
-        interface state.
+        from ``_on_receive`` while the node address is still ``None``
+        (late ``myInfo``).  Safe to call multiple times; refreshes from
+        current interface state.
+
+        The node address derives from ``interface.myInfo.my_node_num``.
+        The firmware release and board model derive from the radio's
+        ``DeviceMetadata`` (``interface.metadata``), which the SDK stores
+        from the same initial config exchange that delivers ``myInfo`` —
+        no additional request is issued.  All three are captured under
+        the client-state lock so a reader never sees a torn identity
+        snapshot, and a replacement client cannot inherit the previous
+        client's values.
         """
         with self._client_state_lock:
             self._node_id = None
+            self._firmware_version = None
+            self._board_model = None
             client = self._client
             if client is None:
                 return
@@ -1207,6 +1253,25 @@ class MeshtasticSession:
             node_num = getattr(my_info, "my_node_num", None)
             if isinstance(node_num, int) and node_num >= 0:
                 self._node_id = f"!{node_num:08x}"
+            metadata = getattr(client, "metadata", None)
+            firmware_version = getattr(metadata, "firmware_version", None)
+            if isinstance(firmware_version, str) and firmware_version:
+                self._firmware_version = firmware_version
+            board_model = getattr(metadata, "hw_model", None)
+            if isinstance(board_model, str) and board_model:
+                # Duck-typed fake clients may carry a ready board name.
+                self._board_model = board_model
+            elif (
+                isinstance(board_model, int)
+                and not isinstance(board_model, bool)
+                and board_model > 0
+            ):
+                try:
+                    from meshtastic.protobuf import mesh_pb2
+
+                    self._board_model = mesh_pb2.HardwareModel.Name(board_model)
+                except (ImportError, ValueError):
+                    self._board_model = None
 
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets from the active SDK client.
@@ -1303,6 +1368,8 @@ class MeshtasticSession:
             if self._stop_requested or self._reconnecting:
                 return
             self._node_id = None
+            self._firmware_version = None
+            self._board_model = None
             self._last_error = reason
             loop = self._loop
         self._logger.warning(
