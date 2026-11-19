@@ -148,6 +148,7 @@ from medre.adapters.meshtastic.send_correlation import (
 )
 from medre.adapters.meshtastic.session import MeshtasticSession
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
+from medre.adapters.meshtastic.startup_info import build_startup_info
 from medre.config.adapters.meshtastic import MeshtasticConfig
 
 try:
@@ -1720,6 +1721,23 @@ class MeshtasticAdapter(AdapterContract):
             }
 
         return result
+
+    def startup_info(self) -> dict[str, Any]:
+        """Facts the adapter already holds, for core's startup block.
+
+        Core duck-types this callable at the ready transition and renders
+        the returned scalar facts; display ordering and caps are core's
+        business.  Pure read: no device or radio I/O, no resource
+        acquisition, no session mutation — the node address is an atomic
+        snapshot of session state held under the session's client lock,
+        safe to call from any worker thread.  Facts not held yet (e.g.
+        the node address before the radio's ``myInfo`` arrives, or board
+        and firmware details this adapter never gathers) are omitted
+        rather than probed.
+        """
+        session = self._session
+        node_id = session.node_id if session is not None else None
+        return build_startup_info(self._config, node_id=node_id)
 
     # -- Background task management -----------------------------------------
 
