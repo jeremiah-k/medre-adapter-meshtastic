@@ -93,11 +93,30 @@ def _lora_positive_int(value: object) -> int | None:
     """Keep a LoRa scalar only when it is a real (non-default) setting.
 
     Protobuf scalar defaults mean "derive from the preset / region plan"
-    for every LoRa field the session reports, so zero is omitted.
+    for every LoRa field the session reports — except ``channel_num``,
+    whose zero default carries its own documented meaning (see
+    :func:`_lora_frequency_slot_derived`).
     """
     if isinstance(value, int) and not isinstance(value, bool) and value > 0:
         return value
     return None
+
+
+def _lora_frequency_slot_derived(value: object) -> bool:
+    """Whether the delivered LoRa config leaves the frequency slot derived.
+
+    ``LoRaConfig.channel_num`` has implicit protobuf presence, so an
+    explicitly-set zero and an unset field collapse to the same wire
+    default — and both mean the firmware derives the slot from the
+    channel-name hash (the pinned ``LoRaConfig`` field rule).  The
+    marker therefore only needs the delivered config to carry zero,
+    which is exactly where this read is reached: the parent
+    ``HasField("lora")`` gate above already established that the LoRa
+    config was delivered.  Pure read: this never computes the hash
+    itself — the derived slot is a configuration fact, not a value the
+    adapter can know.
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and value == 0
 
 
 def _lora_coding_rate(
@@ -142,6 +161,13 @@ def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
     reads connect-flow state the client already holds, never issuing a
     request.  Clients without the attribute (fakes, pre-config radios)
     yield ``None`` and every fact is omitted rather than probed.
+
+    The frequency slot distinguishes three states: LoRa config not
+    delivered (no facts at all), an explicit ``channel_num`` (captured
+    as ``frequency_slot``), and a delivered config carrying the zero
+    default (``frequency_slot_derived`` — the firmware derives the slot
+    from the channel-name hash; reported as configuration semantics,
+    never computed).
     """
     config = getattr(getattr(client, "localNode", None), "localConfig", None)
     # Protobuf returns a default child message even before any LoRa config
@@ -159,6 +185,11 @@ def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
     preset = None
     if use_preset is True:
         preset = _lora_enum_name("ModemPreset", getattr(lora, "modem_preset", None))
+    # ``channel_num`` is captured exactly once: the explicit slot and the
+    # derived marker must both come from this single captured value, so a
+    # held config that changes between reads can never render an
+    # inconsistent pair of facts.
+    channel_num = getattr(lora, "channel_num", None)
     return LoRaRadioFacts(
         # Region always reports when resolvable — including UNSET, which
         # is itself the operationally relevant "cannot transmit" fact.
@@ -175,7 +206,8 @@ def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
         frequency_override=_lora_frequency_override_mhz(
             getattr(lora, "override_frequency", None)
         ),
-        frequency_slot=_lora_positive_int(getattr(lora, "channel_num", None)),
+        frequency_slot=_lora_positive_int(channel_num),
+        frequency_slot_derived=_lora_frequency_slot_derived(channel_num),
     )
 
 

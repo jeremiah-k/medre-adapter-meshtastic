@@ -105,6 +105,74 @@ def test_lora_capture_honors_parent_presence_even_with_default_accessor(
         assert facts is None
 
 
+@pytest.mark.parametrize(
+    ("channel_num", "explicit", "derived"),
+    [
+        pytest.param(None, None, False, id="field-absent-no-slot-fact"),
+        pytest.param(0, None, True, id="zero-default-is-derived"),
+        pytest.param(14, 14, False, id="explicit-slot"),
+    ],
+)
+def test_frequency_slot_capture_distinguishes_three_states(
+    channel_num: int | None, explicit: int | None, derived: bool
+) -> None:
+    """The capture keys the derived marker on zero-with-config-delivered.
+
+    ``channel_num`` has implicit protobuf presence, so an explicitly-set
+    zero and an unset field collapse on the wire; with the parent
+    ``HasField("lora")`` gate already satisfied, that collapse is exactly
+    the derived case.  An explicit positive slot stays numeric.
+    """
+    overrides: dict[str, Any] = (
+        {} if channel_num is None else {"channel_num": channel_num}
+    )
+    facts = _held_facts(**overrides)
+    assert facts.frequency_slot == explicit
+    assert facts.frequency_slot_derived is derived
+    rendered = _fact_value(facts, "frequency_slot")
+    if explicit is not None:
+        assert rendered == explicit
+    elif derived:
+        assert rendered == "derived (name hash)"
+    else:
+        assert rendered is None
+
+
+def test_frequency_slot_states_come_from_one_captured_channel_num() -> None:
+    """The explicit slot and the derived marker share one ``channel_num`` read.
+
+    The held SDK configuration can change between attribute reads, so
+    reading ``channel_num`` twice could pair an explicit slot with a
+    derived marker captured from a different held value.  The capture
+    reads the attribute exactly once and derives both states from that
+    single captured value.
+    """
+
+    class ShiftingLora:
+        def __init__(self) -> None:
+            self.reads = 0
+            self._held_channel_num = 20
+
+        @property
+        def channel_num(self) -> int:
+            self.reads += 1
+            value = self._held_channel_num
+            # A held config that moves to the zero default after the read.
+            self._held_channel_num = 0
+            return value
+
+    lora = ShiftingLora()
+    facts = _read_lora_radio_facts(
+        SimpleNamespace(
+            localNode=SimpleNamespace(localConfig=SimpleNamespace(lora=lora))
+        )
+    )
+    assert facts is not None
+    assert lora.reads == 1
+    assert facts.frequency_slot == 20
+    assert facts.frequency_slot_derived is False
+
+
 @pytest.mark.meshtastic_sdk
 def test_sdk_local_config_presence_distinguishes_absent_and_unset_lora() -> None:
     localonly_pb2 = import_module("meshtastic.protobuf.localonly_pb2")
@@ -124,6 +192,16 @@ def test_sdk_local_config_presence_distinguishes_absent_and_unset_lora() -> None
     assert facts is not None
     assert facts.region == "UNSET"
     assert facts.coding_rate is None
+    # A delivered default LoRaConfig carries channel_num zero: with the
+    # parent presence gate satisfied, the wire collapse of "explicit
+    # zero" and "not set" is exactly the derived case — the marker
+    # states the derivation rule without computing the hash.
+    assert facts.frequency_slot is None
+    assert facts.frequency_slot_derived is True
+    rows = build_startup_info(make_meshtastic_config(), lora_facts=facts)["rows"]
+    assert ("frequency_slot", "derived (name hash)", "frequency slot") in [
+        (fact["name"], fact["value"], fact["label"]) for row in rows for fact in row
+    ]
 
 
 def test_failed_optional_lora_read_keeps_other_identity_facts() -> None:
@@ -158,3 +236,35 @@ def test_sdk_preset_override_uses_wire_enum(rate: int, expected: str | None) -> 
     assert facts is not None
     assert facts.preset == "LONG_FAST"
     assert _fact_value(facts, "coding_rate") == expected
+
+
+@pytest.mark.meshtastic_sdk
+def test_sdk_explicit_channel_num_stays_numeric_next_to_derived() -> None:
+    """Real protobuf: an explicit slot renders as a number, zero as the marker."""
+    config_pb2 = import_module("meshtastic.protobuf.config_pb2")
+
+    def facts_with(channel_num: int) -> Any:
+        config = config_pb2.Config(
+            lora=config_pb2.Config.LoRaConfig(
+                use_preset=True,
+                modem_preset=config_pb2.Config.LoRaConfig.LONG_FAST,
+                region=config_pb2.Config.LoRaConfig.US,
+                hop_limit=3,
+                channel_num=channel_num,
+            )
+        )
+        facts = _read_lora_radio_facts(
+            SimpleNamespace(localNode=SimpleNamespace(localConfig=config))
+        )
+        assert facts is not None
+        return facts
+
+    explicit = facts_with(27)
+    assert explicit.frequency_slot == 27
+    assert explicit.frequency_slot_derived is False
+    assert _fact_value(explicit, "frequency_slot") == 27
+
+    derived = facts_with(0)
+    assert derived.frequency_slot is None
+    assert derived.frequency_slot_derived is True
+    assert _fact_value(derived, "frequency_slot") == "derived (name hash)"

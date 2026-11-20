@@ -704,13 +704,18 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
             [
                 ("preset", "LONG_FAST", "preset"),
                 ("hop_limit", 3, "hop limit"),
+                ("frequency_slot", "derived (name hash)", "frequency slot"),
                 ("region", "US", "region"),
             ],
             id="stock-config",
         ),
         pytest.param(
             {"use_preset": False},
-            [("hop_limit", 3, "hop limit"), ("region", "US", "region")],
+            [
+                ("hop_limit", 3, "hop limit"),
+                ("frequency_slot", "derived (name hash)", "frequency slot"),
+                ("region", "US", "region"),
+            ],
             id="manual-fields-omit-preset",
         ),
         pytest.param(
@@ -718,6 +723,7 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
             [
                 ("preset", "LONG_FAST", "preset"),
                 ("hop_limit", 3, "hop limit"),
+                ("frequency_slot", "derived (name hash)", "frequency slot"),
                 ("region", "UNSET", "region"),
             ],
             id="unset-region-still-reports",
@@ -727,6 +733,7 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
             [
                 ("preset", "LONG_FAST", "preset"),
                 ("hop_limit", 3, "hop limit"),
+                ("frequency_slot", "derived (name hash)", "frequency slot"),
                 ("coding_rate", "4/8", "coding rate"),
                 ("region", "US", "region"),
             ],
@@ -737,6 +744,7 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
             [
                 ("preset", "LONG_FAST", "preset"),
                 ("hop_limit", 3, "hop limit"),
+                ("frequency_slot", "derived (name hash)", "frequency slot"),
                 ("region", "US", "region"),
             ],
             id="coding-rate-out-of-range-omitted",
@@ -746,6 +754,7 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
             [
                 ("preset", "LONG_FAST", "preset"),
                 ("hop_limit", 3, "hop limit"),
+                ("frequency_slot", "derived (name hash)", "frequency slot"),
                 ("frequency_override", "915 MHz", "frequency override"),
                 ("region", "US", "region"),
             ],
@@ -772,21 +781,38 @@ def test_lora_facts_follow_held_radio_settings(
     assert _lora_facts_of(adapter) == expected
 
 
-def test_default_derived_lora_values_render_no_row() -> None:
-    """A radio with only default-derived LoRa values burns no extra row."""
+def test_default_derived_lora_values_render_only_slot_marker() -> None:
+    """A default-derived radio reports just the derived frequency slot.
+
+    Every other default-derived scalar is omitted; the frequency slot is
+    the one zero default that still means something — the firmware
+    derives the slot from the channel-name hash — so its marker is the
+    only fact that justifies the row.
+    """
     adapter = MeshtasticAdapter(make_meshtastic_config())
     _hold_lora_facts(
         adapter,
         _lora_double(use_preset=False, region=None, hop_limit=0),
     )
     rows = adapter.startup_info()["rows"]
-    assert len(rows) == 2
+    assert len(rows) == 3
     assert [f["name"] for f in rows[0]] == ["node_id"]
     assert [f["name"] for f in rows[1]] == ["connection_type"]
+    assert rows[2] == [
+        {
+            "name": "frequency_slot",
+            "value": "derived (name hash)",
+            "label": "frequency slot",
+        }
+    ]
 
 
 def test_lora_facts_omitted_without_held_radio_config() -> None:
-    """Clients without the held ``LoRaConfig`` never offer LoRa facts."""
+    """Clients without the held ``LoRaConfig`` never offer LoRa facts.
+
+    The derived-slot marker must not render either: it states what the
+    delivered config means, so absent config means no fact at all.
+    """
     adapter = MeshtasticAdapter(make_meshtastic_config())
     _session_with_payload(adapter, None)
     rows = adapter.startup_info()["rows"]
@@ -794,6 +820,41 @@ def test_lora_facts_omitted_without_held_radio_config() -> None:
     names = [f["name"] for row in rows for f in row]
     assert "region" not in names
     assert "preset" not in names
+    assert "frequency_slot" not in names
+
+
+def test_frequency_slot_renders_explicit_and_derived_states() -> None:
+    """The two slot shapes render in the same position with the same fact name.
+
+    An explicit ``channel_num`` renders as a number; the zero default
+    renders the derivation marker in the identical frequency-slot
+    position — with a frequency override following it in both states —
+    so downstream rendering stays uniform.
+    """
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    _hold_lora_facts(
+        adapter,
+        _lora_double(channel_num=14, override_frequency=915.0),
+    )
+    assert _lora_facts_of(adapter) == [
+        ("preset", "LONG_FAST", "preset"),
+        ("hop_limit", 3, "hop limit"),
+        ("frequency_slot", 14, "frequency slot"),
+        ("frequency_override", "915 MHz", "frequency override"),
+        ("region", "US", "region"),
+    ]
+
+    _hold_lora_facts(
+        adapter,
+        _lora_double(channel_num=0, override_frequency=915.0),
+    )
+    assert _lora_facts_of(adapter) == [
+        ("preset", "LONG_FAST", "preset"),
+        ("hop_limit", 3, "hop limit"),
+        ("frequency_slot", "derived (name hash)", "frequency slot"),
+        ("frequency_override", "915 MHz", "frequency override"),
+        ("region", "US", "region"),
+    ]
 
 
 def test_replacement_client_does_not_inherit_lora_facts() -> None:
@@ -902,13 +963,18 @@ def test_sdk_lora_config_enums_resolve_to_protobuf_names() -> None:
     assert _lora_facts_of(adapter) == [
         ("preset", "LONG_MODERATE", "preset"),
         ("hop_limit", 3, "hop limit"),
+        ("frequency_slot", "derived (name hash)", "frequency slot"),
         ("region", "US", "region"),
     ]
 
 
 @pytest.mark.meshtastic_sdk
 def test_sdk_lora_unknown_enum_value_is_omitted() -> None:
-    """An enum value the pinned SDK does not know is omitted, not guessed."""
+    """An enum value the pinned SDK does not know is omitted, not guessed.
+
+    The derived-slot marker still renders: the delivered config carries
+    the ``channel_num`` zero default regardless of the unknown region.
+    """
     config_pb2 = import_module("meshtastic.protobuf.config_pb2")
     config = make_meshtastic_config()
     adapter = MeshtasticAdapter(config)
@@ -916,7 +982,10 @@ def test_sdk_lora_unknown_enum_value_is_omitted() -> None:
         adapter,
         config_pb2.Config.LoRaConfig(region=255, hop_limit=2),
     )
-    assert _lora_facts_of(adapter) == [("hop_limit", 2, "hop limit")]
+    assert _lora_facts_of(adapter) == [
+        ("hop_limit", 2, "hop limit"),
+        ("frequency_slot", "derived (name hash)", "frequency slot"),
+    ]
 
 
 # ---------------------------------------------------------------------------
