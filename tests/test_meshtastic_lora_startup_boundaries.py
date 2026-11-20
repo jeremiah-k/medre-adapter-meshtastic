@@ -138,6 +138,41 @@ def test_frequency_slot_capture_distinguishes_three_states(
         assert rendered is None
 
 
+def test_frequency_slot_states_come_from_one_captured_channel_num() -> None:
+    """The explicit slot and the derived marker share one ``channel_num`` read.
+
+    The held SDK configuration can change between attribute reads, so
+    reading ``channel_num`` twice could pair an explicit slot with a
+    derived marker captured from a different held value.  The capture
+    reads the attribute exactly once and derives both states from that
+    single captured value.
+    """
+
+    class ShiftingLora:
+        def __init__(self) -> None:
+            self.reads = 0
+            self._held_channel_num = 20
+
+        @property
+        def channel_num(self) -> int:
+            self.reads += 1
+            value = self._held_channel_num
+            # A held config that moves to the zero default after the read.
+            self._held_channel_num = 0
+            return value
+
+    lora = ShiftingLora()
+    facts = _read_lora_radio_facts(
+        SimpleNamespace(
+            localNode=SimpleNamespace(localConfig=SimpleNamespace(lora=lora))
+        )
+    )
+    assert facts is not None
+    assert lora.reads == 1
+    assert facts.frequency_slot == 20
+    assert facts.frequency_slot_derived is False
+
+
 @pytest.mark.meshtastic_sdk
 def test_sdk_local_config_presence_distinguishes_absent_and_unset_lora() -> None:
     localonly_pb2 = import_module("meshtastic.protobuf.localonly_pb2")

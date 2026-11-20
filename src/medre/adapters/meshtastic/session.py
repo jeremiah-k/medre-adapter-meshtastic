@@ -185,6 +185,11 @@ def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
     preset = None
     if use_preset is True:
         preset = _lora_enum_name("ModemPreset", getattr(lora, "modem_preset", None))
+    # ``channel_num`` is captured exactly once: the explicit slot and the
+    # derived marker must both come from this single captured value, so a
+    # held config that changes between reads can never render an
+    # inconsistent pair of facts.
+    channel_num = getattr(lora, "channel_num", None)
     return LoRaRadioFacts(
         # Region always reports when resolvable — including UNSET, which
         # is itself the operationally relevant "cannot transmit" fact.
@@ -201,10 +206,8 @@ def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
         frequency_override=_lora_frequency_override_mhz(
             getattr(lora, "override_frequency", None)
         ),
-        frequency_slot=_lora_positive_int(getattr(lora, "channel_num", None)),
-        frequency_slot_derived=_lora_frequency_slot_derived(
-            getattr(lora, "channel_num", None)
-        ),
+        frequency_slot=_lora_positive_int(channel_num),
+        frequency_slot_derived=_lora_frequency_slot_derived(channel_num),
     )
 
 
