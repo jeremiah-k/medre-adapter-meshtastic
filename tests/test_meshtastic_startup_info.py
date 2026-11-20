@@ -159,6 +159,14 @@ def test_startup_info_reports_device_release_from_sdk_metadata() -> None:
             id="tcp",
         ),
         pytest.param(
+            {"connection_type": "tcp", "host": "2001:db8::1", "port": 4403},
+            [
+                ("connection_type", "tcp", "link"),
+                ("endpoint", "[2001:db8::1]:4403", "endpoint"),
+            ],
+            id="tcp-ipv6",
+        ),
+        pytest.param(
             {"connection_type": "tcp", "host": "mesh.example.org"},
             [
                 ("connection_type", "tcp", "link"),
@@ -672,7 +680,7 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
         _lora_double(
             region="EU_868",
             modem_preset="MEDIUM_FAST",
-            coding_rate=5,
+            coding_rate=6,
             hop_limit=5,
             override_frequency=867.5,
             channel_num=27,
@@ -683,7 +691,7 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
         ("hop_limit", 5, "hop limit"),
         ("frequency_slot", 27, "frequency slot"),
         ("frequency_override", "867.5 MHz", "frequency override"),
-        ("coding_rate", "4/5", "coding rate"),
+        ("coding_rate", "4/6", "coding rate"),
         ("region", "EU_868", "region"),
     ]
 
@@ -729,10 +737,9 @@ def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
             [
                 ("preset", "LONG_FAST", "preset"),
                 ("hop_limit", 3, "hop limit"),
-                ("coding_rate", 12, "coding rate"),
                 ("region", "US", "region"),
             ],
-            id="coding-rate-out-of-range-reports-raw",
+            id="coding-rate-out-of-range-omitted",
         ),
         pytest.param(
             {"override_frequency": 915.0},
@@ -789,68 +796,56 @@ def test_lora_facts_omitted_without_held_radio_config() -> None:
     assert "preset" not in names
 
 
-async def test_replacement_client_does_not_inherit_lora_facts(
-    make_adapter_context,
-) -> None:
+def test_replacement_client_does_not_inherit_lora_facts() -> None:
     adapter = MeshtasticAdapter(make_meshtastic_config())
-    await adapter.start(make_adapter_context("mesh-1"))
-    try:
-        _hold_lora_facts(adapter, _lora_double())
-        session = adapter._session
-        assert session is not None
-        session._activate_client(SimpleNamespace(myInfo=None))
-        assert session.startup_identity_snapshot()[4] is None
-        assert _lora_facts_of(adapter) == []
-    finally:
-        await adapter.stop()
+    _hold_lora_facts(adapter, _lora_double())
+    session = adapter._session
+    assert session is not None
+    session._activate_client(SimpleNamespace(myInfo=None))
+    assert session.startup_identity_snapshot()[4] is None
+    assert _lora_facts_of(adapter) == []
 
 
-async def test_rich_lora_facts_render_through_core_within_row_cap(
-    make_adapter_context,
-) -> None:
+async def test_rich_lora_facts_render_through_core_within_row_cap() -> None:
     """The full LoRa fact set stays inside core's per-adapter row cap."""
     adapter = MeshtasticAdapter(make_meshtastic_config())
-    await adapter.start(make_adapter_context("mesh-1"))
-    try:
-        _hold_lora_facts(
-            adapter,
-            _lora_double(
-                region="EU_868",
-                modem_preset="MEDIUM_FAST",
-                coding_rate=5,
-                hop_limit=5,
-                override_frequency=867.5,
-                channel_num=27,
-            ),
-        )
-        info = await collect_startup_info(
-            "mesh-1", "meshtastic", adapter, emitted_at=_EMITTED_AT
-        )
-        assert info is not None
-        rendered = [(f.name, f.row, f.value, f.label) for f in info.fields]
-        assert rendered == [
-            ("node_id", 0, "!a4b3c2d1", None),
-            ("connection_type", 1, "fake", "link"),
-            ("preset", 2, "MEDIUM_FAST", "preset"),
-            ("hop_limit", 2, "5", "hop limit"),
-            ("frequency_slot", 2, "27", "frequency slot"),
-            ("frequency_override", 2, "867.5 MHz", "frequency override"),
-            ("coding_rate", 2, "4/5", "coding rate"),
-            ("region", 2, "EU_868", "region"),
-        ]
-        assert info.extra_rows == 0
-        lines = render_startup_info_block("meshtastic.mesh-1  ready", info).splitlines()
-        assert lines[0] == "meshtastic.mesh-1  ready"
-        # The provider leaves the node label unspecified; both core renderers
-        # are supported (same hedge as the identity-fact tests above).
-        assert lines[1] in {"  !a4b3c2d1", "  node id !a4b3c2d1"}
-        assert lines[2] == "  link fake"
-        assert lines[3] == (
-            "  preset MEDIUM_FAST · hop limit 5 · frequency slot 27"
-            " · frequency override 867.5 MHz · coding rate 4/5 · region EU_868"
-        )
-    finally:
-        await adapter.stop()
+    _hold_lora_facts(
+        adapter,
+        _lora_double(
+            region="EU_868",
+            modem_preset="MEDIUM_FAST",
+            coding_rate=6,
+            hop_limit=5,
+            override_frequency=867.5,
+            channel_num=27,
+        ),
+    )
+    info = await collect_startup_info(
+        "mesh-1", "meshtastic", adapter, emitted_at=_EMITTED_AT
+    )
+    assert info is not None
+    rendered = [(f.name, f.row, f.value, f.label) for f in info.fields]
+    assert rendered == [
+        ("node_id", 0, "!a4b3c2d1", None),
+        ("connection_type", 1, "fake", "link"),
+        ("preset", 2, "MEDIUM_FAST", "preset"),
+        ("hop_limit", 2, "5", "hop limit"),
+        ("frequency_slot", 2, "27", "frequency slot"),
+        ("frequency_override", 2, "867.5 MHz", "frequency override"),
+        ("coding_rate", 2, "4/6", "coding rate"),
+        ("region", 2, "EU_868", "region"),
+    ]
+    assert info.extra_rows == 0
+    lines = render_startup_info_block("meshtastic.mesh-1  ready", info).splitlines()
+    assert lines[0] == "meshtastic.mesh-1  ready"
+    # The provider leaves the node label unspecified; both core renderers
+    # are supported (same hedge as the identity-fact tests above).
+    assert lines[1] in {"  !a4b3c2d1", "  node id !a4b3c2d1"}
+    assert lines[2] == "  link fake"
+    assert lines[3] == (
+        "  preset MEDIUM_FAST · hop limit 5 · frequency slot 27"
+        " · frequency override 867.5 MHz · coding rate 4/6 · region EU_868"
+    )
 
 
 async def test_fake_adapter_renders_staged_lora_facts() -> None:
@@ -930,7 +925,7 @@ def test_sdk_lora_unknown_enum_value_is_omitted() -> None:
 
 
 def _hold_local_node_name(
-    adapter: MeshtasticAdapter, user: dict[str, str] | None
+    adapter: MeshtasticAdapter, user: dict[str, Any] | None
 ) -> None:
     """Install a session whose client's held node DB carries the local user.
 
@@ -976,10 +971,11 @@ def _identity_facts_of(adapter: MeshtasticAdapter) -> list[tuple[str, Any, str]]
             id="short-only",
         ),
         pytest.param({"longName": "  ", "shortName": ""}, None, id="blank-omits"),
+        pytest.param({"longName": 123, "shortName": False}, None, id="non-text-omits"),
     ],
 )
 def test_local_node_name_combines_held_user_facts(
-    user: dict[str, str] | None, expected_value: str | None
+    user: dict[str, Any] | None, expected_value: str | None
 ) -> None:
     """LongName and ShortName render as one fact when at least one is held."""
     adapter = MeshtasticAdapter(make_meshtastic_config())
@@ -1028,21 +1024,15 @@ def test_failing_local_node_name_read_omits_without_breaking_refresh() -> None:
     )
 
 
-async def test_replacement_client_does_not_inherit_node_name(
-    make_adapter_context,
-) -> None:
+def test_replacement_client_does_not_inherit_node_name() -> None:
     adapter = MeshtasticAdapter(make_meshtastic_config())
-    await adapter.start(make_adapter_context("mesh-1"))
-    try:
-        _hold_local_node_name(adapter, {"longName": "Alpha Node", "shortName": "ALPH"})
-        session = adapter._session
-        assert session is not None
-        session._activate_client(SimpleNamespace(myInfo=None))
-        assert session.startup_identity_snapshot()[1] is None
-        names = [f["name"] for row in adapter.startup_info()["rows"] for f in row]
-        assert "node_name" not in names
-    finally:
-        await adapter.stop()
+    _hold_local_node_name(adapter, {"longName": "Alpha Node", "shortName": "ALPH"})
+    session = adapter._session
+    assert session is not None
+    session._activate_client(SimpleNamespace(myInfo=None))
+    assert session.startup_identity_snapshot()[1] is None
+    names = [f["name"] for row in adapter.startup_info()["rows"] for f in row]
+    assert "node_name" not in names
 
 
 async def test_fake_adapter_renders_staged_node_name() -> None:
@@ -1072,7 +1062,7 @@ async def test_fake_adapter_renders_staged_node_name() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_full_fact_set_row_shape_fits_core_caps(make_adapter_context) -> None:
+async def test_full_fact_set_row_shape_fits_core_caps() -> None:
     """Worst case rows stay within core's 8-facts-per-row and 10-row caps.
 
     Identity row carries 2 facts, the endpoint row 4, and the LoRa row
@@ -1082,67 +1072,63 @@ async def test_full_fact_set_row_shape_fits_core_caps(make_adapter_context) -> N
         connection_type="tcp", host="mesh.example.org", port=4403
     )
     adapter = MeshtasticAdapter(config)
-    await adapter.start(make_adapter_context("mesh-1"))
-    try:
-        session = MeshtasticSession(config, "mesh-1", "meshtastic")
-        session._activate_client(
-            SimpleNamespace(
-                myInfo=SimpleNamespace(my_node_num=0xA4B3C2D1),
-                getMyUser=lambda: {"longName": "Alpha Node", "shortName": "ALPH"},
-                metadata=SimpleNamespace(
-                    firmware_version="2.7.11.abcd", hw_model="RAK4631"
-                ),
-                localNode=SimpleNamespace(
-                    localConfig=SimpleNamespace(
-                        lora=_lora_double(
-                            region="EU_868",
-                            modem_preset="MEDIUM_FAST",
-                            coding_rate=5,
-                            hop_limit=5,
-                            override_frequency=867.5,
-                            channel_num=27,
-                        )
+    session = MeshtasticSession(config, "mesh-1", "meshtastic")
+    session._activate_client(
+        SimpleNamespace(
+            myInfo=SimpleNamespace(my_node_num=0xA4B3C2D1),
+            getMyUser=lambda: {"longName": "Alpha Node", "shortName": "ALPH"},
+            metadata=SimpleNamespace(
+                firmware_version="2.7.18.abcd", hw_model="RAK4631"
+            ),
+            localNode=SimpleNamespace(
+                localConfig=SimpleNamespace(
+                    lora=_lora_double(
+                        region="EU_868",
+                        modem_preset="MEDIUM_FAST",
+                        coding_rate=6,
+                        hop_limit=5,
+                        override_frequency=867.5,
+                        channel_num=27,
                     )
-                ),
-            )
+                )
+            ),
         )
-        session._refresh_node_id()
-        adapter._session = session
+    )
+    session._refresh_node_id()
+    adapter._session = session
 
-        rows = adapter.startup_info()["rows"]
-        assert [[f["name"] for f in row] for row in rows] == [
-            ["node_id", "node_name"],
-            ["connection_type", "endpoint", "firmware_version", "board_model"],
-            [
-                "preset",
-                "hop_limit",
-                "frequency_slot",
-                "frequency_override",
-                "coding_rate",
-                "region",
-            ],
-        ]
+    rows = adapter.startup_info()["rows"]
+    assert [[f["name"] for f in row] for row in rows] == [
+        ["node_id", "node_name"],
+        ["connection_type", "endpoint", "firmware_version", "board_model"],
+        [
+            "preset",
+            "hop_limit",
+            "frequency_slot",
+            "frequency_override",
+            "coding_rate",
+            "region",
+        ],
+    ]
 
-        info = await collect_startup_info(
-            "mesh-1", "meshtastic", adapter, emitted_at=_EMITTED_AT
-        )
-        assert info is not None
-        assert info.extra_rows == 0
-        lines = render_startup_info_block("meshtastic.mesh-1  ready", info).splitlines()
-        assert lines[0] == "meshtastic.mesh-1  ready"
-        # The provider leaves the node label unspecified; both core renderers
-        # are supported (same hedge as the identity-fact tests above).
-        assert lines[1] in {
-            "  !a4b3c2d1 · name Alpha Node (ALPH)",
-            "  node id !a4b3c2d1 · name Alpha Node (ALPH)",
-        }
-        assert lines[2] == (
-            "  link tcp · endpoint mesh.example.org:4403"
-            " · firmware 2.7.11.abcd · board RAK4631"
-        )
-        assert lines[3] == (
-            "  preset MEDIUM_FAST · hop limit 5 · frequency slot 27"
-            " · frequency override 867.5 MHz · coding rate 4/5 · region EU_868"
-        )
-    finally:
-        await adapter.stop()
+    info = await collect_startup_info(
+        "mesh-1", "meshtastic", adapter, emitted_at=_EMITTED_AT
+    )
+    assert info is not None
+    assert info.extra_rows == 0
+    lines = render_startup_info_block("meshtastic.mesh-1  ready", info).splitlines()
+    assert lines[0] == "meshtastic.mesh-1  ready"
+    # The provider leaves the node label unspecified; both core renderers
+    # are supported (same hedge as the identity-fact tests above).
+    assert lines[1] in {
+        "  !a4b3c2d1 · name Alpha Node (ALPH)",
+        "  node id !a4b3c2d1 · name Alpha Node (ALPH)",
+    }
+    assert lines[2] == (
+        "  link tcp · endpoint mesh.example.org:4403"
+        " · firmware 2.7.18.abcd · board RAK4631"
+    )
+    assert lines[3] == (
+        "  preset MEDIUM_FAST · hop limit 5 · frequency slot 27"
+        " · frequency override 867.5 MHz · coding rate 4/6 · region EU_868"
+    )

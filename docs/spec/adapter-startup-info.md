@@ -1,9 +1,10 @@
 # Adapter startup info
 
 Core's runtime duck-types an optional `startup_info()` callable on a
-built adapter and renders the returned scalar facts at the adapter's
-ready transition. The full provider contract, redaction policy, cache
-behavior, and presentation rules are owned by the core specification;
+built adapter, collecting the returned scalar facts at the adapter's
+ready transition. Core owns the timing and layout of the rendered banner.
+The full provider contract, redaction policy, cache behavior, and
+presentation rules are owned by the core specification;
 this page fixes only what this adapter supplies.
 
 ## Facts
@@ -30,7 +31,8 @@ without the node DB surface, offers no name fact.
 
 The second row carries the configured endpoint: the connection type
 and its endpoint detail — TCP host and port combine into one fact
-rendered as `host:port` (host alone when no port is configured),
+rendered as `host:port` (bracketed IPv6 when a port is present; host
+alone when no port is configured),
 serial device, or BLE address — followed by the held device release
 facts: the radio's firmware release (label `firmware`) and board
 model (label `board`). The third row carries the radio's LoRa link
@@ -48,7 +50,12 @@ the channel number from the channel name hash). The override pair
 follows: the frequency override (label `frequency override`, rendered
 in MHz, only when the radio overrides the region plan) immediately
 before the coding rate override (label `coding rate`, rendered as the
-`4/N` ratio, only when the radio raises the preset's coding rate). The
+`4/N` ratio, for valid manual rates or when the configured rate raises
+that of a known preset). Zero, out-of-range values, and equal/lower
+preset rates are omitted. Unknown presets cannot establish an override.
+Frequency values retain the precision of the held number without
+padding whole MHz values. These are configured settings, not independent
+proof of RF parameters applied by a particular firmware version. The
 region closes the row (label `region`, rendered whenever the radio's
 LoRa config is held — an unset region is itself the operationally
 relevant fact that the radio cannot transmit). Enum fields render as
@@ -66,8 +73,9 @@ completes, and the session stores the facts atomically with the node
 identity under the client lock at every activation. Facts that are
 not held MUST be omitted rather than probed: a radio that has not
 (yet) delivered its config exchange leaves the name, release, and
-LoRa facts absent, and the adapter never requests them with a
-dedicated admin message. The adapter still never gathers channel
+LoRa facts absent (including protobuf's default-valued accessor for an
+absent `LocalConfig.lora` field), and the adapter never requests them
+with a dedicated admin message. The adapter still never gathers channel
 counts, so it does not offer them; channel counts on the session are
 an unpopulated placeholder and MUST NOT be reported as device facts.
 

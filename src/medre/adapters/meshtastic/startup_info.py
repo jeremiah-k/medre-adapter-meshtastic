@@ -1,7 +1,7 @@
 """Startup-info facts from state the Meshtastic adapter already holds.
 
 Core's runtime duck-types an optional ``startup_info()`` callable on a
-built adapter and renders the returned scalar facts at the adapter's
+built adapter and collects the returned scalar facts at the adapter's
 ready transition (see the adapter-startup-info specification in the
 core distribution).  This module shapes the facts this adapter holds at
 that transition — the session's own node address and node name, the
@@ -20,6 +20,7 @@ and redacted by core at the render boundary.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,8 +36,9 @@ class LoRaRadioFacts:
     client activation; every field not meaningfully set is ``None`` so
     the provider omits it instead of burning a fact row.  Enum fields
     hold their protobuf enum names (e.g. ``"US"``, ``"LONG_FAST"``);
-    ``coding_rate`` is the raw denominator (0 means "derive from the
-    preset"); ``frequency_override`` is the override frequency in MHz.
+    ``coding_rate`` is a valid explicit manual denominator or a rate
+    higher than the known preset's denominator; ``frequency_override``
+    is the held override frequency in MHz.
     """
 
     region: str | None = None
@@ -76,21 +78,27 @@ def _lora_facts_row(facts: LoRaRadioFacts) -> list[dict[str, Any]] | None:
                 "label": "frequency slot",
             }
         )
-    if facts.frequency_override:
+    if (
+        facts.frequency_override is not None
+        and math.isfinite(facts.frequency_override)
+        and facts.frequency_override > 0
+    ):
+        frequency = str(facts.frequency_override).removesuffix(".0")
         row.append(
             {
                 "name": "frequency_override",
-                "value": f"{facts.frequency_override:g} MHz",
+                "value": f"{frequency} MHz",
                 "label": "frequency override",
             }
         )
-    if facts.coding_rate:
-        # Denominator of the coding rate (4/5 ... 4/8); render the ratio.
-        if 4 <= facts.coding_rate <= 8:
-            value: str | int = f"4/{facts.coding_rate}"
-        else:
-            value = facts.coding_rate
-        row.append({"name": "coding_rate", "value": value, "label": "coding rate"})
+    if facts.coding_rate is not None and 4 <= facts.coding_rate <= 8:
+        row.append(
+            {
+                "name": "coding_rate",
+                "value": f"4/{facts.coding_rate}",
+                "label": "coding rate",
+            }
+        )
     if facts.region:
         row.append({"name": "region", "value": facts.region, "label": "region"})
     return row or None
@@ -110,7 +118,9 @@ def _endpoint_facts(config: MeshtasticConfig) -> list[dict[str, Any]]:
         if config.host:
             endpoint = config.host
             if config.port is not None:
-                endpoint = f"{config.host}:{config.port}"
+                if ":" in endpoint and not endpoint.startswith("["):
+                    endpoint = f"[{endpoint}]"
+                endpoint = f"{endpoint}:{config.port}"
             facts.append({"name": "endpoint", "value": endpoint, "label": "endpoint"})
     elif config.connection_type == "serial" and config.serial_port:
         facts.append(

@@ -44,6 +44,29 @@ _LIVENESS_INITIAL_DELAY_SECONDS: float = 5.0
 _MAX_SEND_RETRIES: int = 3
 
 
+# Preset coding-rate denominators from firmware MeshRadio.h's
+# modemPresetToParams(). Do not infer a baseline for an unknown or retired
+# preset (VERY_LONG_SLOW has no corresponding firmware parameter set).
+_PRESET_CODING_RATES = {
+    "LONG_FAST": 5,
+    "LONG_SLOW": 8,
+    "MEDIUM_SLOW": 5,
+    "MEDIUM_FAST": 5,
+    "SHORT_SLOW": 5,
+    "SHORT_FAST": 5,
+    "LONG_MODERATE": 8,
+    "SHORT_TURBO": 5,
+    "LONG_TURBO": 8,
+    "LITE_FAST": 5,
+    "LITE_SLOW": 5,
+    "NARROW_FAST": 6,
+    "NARROW_SLOW": 6,
+    "TINY_FAST": 5,
+    "TINY_SLOW": 6,
+    "MEDIUM_TURBO": 5,
+}
+
+
 def _lora_enum_name(enum_name: str, value: object) -> str | None:
     """Resolve a LoRa ``LoRaConfig`` enum member to its protobuf name.
 
@@ -77,15 +100,37 @@ def _lora_positive_int(value: object) -> int | None:
     return None
 
 
+def _lora_coding_rate(
+    value: object, *, use_preset: bool, preset: str | None
+) -> int | None:
+    """Keep explicit manual rates or increases above a known preset rate.
+
+    Firmware accepts manual denominators 4–8; an out-of-range value falls
+    back to the default. In preset mode only a higher denominator (5–8)
+    changes the preset. Unknown presets never establish an override.
+    """
+    rate = _lora_positive_int(value)
+    if rate is None or not 4 <= rate <= 8:
+        return None
+    if not use_preset:
+        return rate
+    baseline = _PRESET_CODING_RATES.get(preset) if preset is not None else None
+    return rate if baseline is not None and rate > baseline else None
+
+
 def _lora_frequency_override_mhz(value: object) -> float | None:
     """Keep the frequency override only when the radio actually overrides.
 
     ``LoRaConfig.override_frequency`` is a MHz float where zero means the
     radio follows the region plan and channel number instead.
     """
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
-        return float(value)
-    return None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        frequency = float(value)
+    except OverflowError:
+        return None
+    return frequency if math.isfinite(frequency) and frequency > 0 else None
 
 
 def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
@@ -98,24 +143,34 @@ def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
     request.  Clients without the attribute (fakes, pre-config radios)
     yield ``None`` and every fact is omitted rather than probed.
     """
-    lora = getattr(
-        getattr(getattr(client, "localNode", None), "localConfig", None),
-        "lora",
-        None,
-    )
+    config = getattr(getattr(client, "localNode", None), "localConfig", None)
+    # Protobuf returns a default child message even before any LoRa config
+    # arrives. Respect presence on the parent; plain test doubles can
+    # still carry an explicitly held lora attribute without HasField.
+    has_field = getattr(config, "HasField", None)
+    if callable(has_field) and not has_field("lora"):
+        return None
+    lora = getattr(config, "lora", None)
     if lora is None or isinstance(lora, (str, bytes)):
         return None
     # The preset only means something when the radio is using one
     # (``use_preset``); otherwise bandwidth/spread factor are manual.
+    use_preset = getattr(lora, "use_preset", None)
     preset = None
-    if getattr(lora, "use_preset", None):
+    if use_preset is True:
         preset = _lora_enum_name("ModemPreset", getattr(lora, "modem_preset", None))
     return LoRaRadioFacts(
         # Region always reports when resolvable — including UNSET, which
         # is itself the operationally relevant "cannot transmit" fact.
         region=_lora_enum_name("RegionCode", getattr(lora, "region", None)),
         preset=preset,
-        coding_rate=_lora_positive_int(getattr(lora, "coding_rate", None)),
+        coding_rate=(
+            _lora_coding_rate(
+                getattr(lora, "coding_rate", None), use_preset=use_preset, preset=preset
+            )
+            if isinstance(use_preset, bool)
+            else None
+        ),
         hop_limit=_lora_positive_int(getattr(lora, "hop_limit", None)),
         frequency_override=_lora_frequency_override_mhz(
             getattr(lora, "override_frequency", None)
@@ -138,10 +193,10 @@ def _read_local_node_name(client: Any) -> str | None:
     omits it rather than probing.  A failing read never breaks the
     refresh: it is swallowed and the fact omitted.
     """
-    get_my_user = getattr(client, "getMyUser", None)
-    if not callable(get_my_user):
-        return None
     try:
+        get_my_user = getattr(client, "getMyUser", None)
+        if not callable(get_my_user):
+            return None
         user = get_my_user()
     except Exception as exc:
         _logger.debug(
@@ -151,8 +206,9 @@ def _read_local_node_name(client: Any) -> str | None:
         return None
     if not isinstance(user, dict):
         return None
-    long_name = str(user.get("longName", "") or "").strip()
-    short_name = str(user.get("shortName", "") or "").strip()
+    long_value, short_value = user.get("longName"), user.get("shortName")
+    long_name = long_value.strip() if isinstance(long_value, str) else ""
+    short_name = short_value.strip() if isinstance(short_value, str) else ""
     if long_name and short_name:
         return f"{long_name} ({short_name})"
     return long_name or short_name or None
@@ -1420,7 +1476,13 @@ class MeshtasticSession:
                 except (ImportError, ValueError):
                     self._board_model = None
             self._node_name = _read_local_node_name(client)
-            self._lora_facts = _read_lora_radio_facts(client)
+            try:
+                self._lora_facts = _read_lora_radio_facts(client)
+            except Exception as exc:
+                _logger.debug(
+                    "Meshtastic LoRa config read failed (%s); facts omitted",
+                    type(exc).__name__,
+                )
 
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets from the active SDK client.
