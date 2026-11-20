@@ -34,6 +34,7 @@ from medre.adapters.fakes.meshtastic import FakeMeshtasticAdapter
 from medre.adapters.meshtastic import startup_info as startup_info_module
 from medre.adapters.meshtastic.adapter import MeshtasticAdapter
 from medre.adapters.meshtastic.session import MeshtasticSession
+from medre.adapters.meshtastic.startup_info import LoRaRadioFacts
 from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _EMITTED_AT = "2026-11-19T00:00:00+00:00"
@@ -603,3 +604,317 @@ async def test_startup_snapshot_cannot_mix_replacement_generations(
         session._client_state_lock = lock
         session._client = None
         await adapter.stop()
+
+
+# ---------------------------------------------------------------------------
+# LoRa link settings: held from the radio's connect-flow config exchange
+# ---------------------------------------------------------------------------
+
+
+def _lora_double(**overrides: Any) -> SimpleNamespace:
+    """A duck-typed radio ``LoRaConfig`` carrying ready display values.
+
+    Mirrors the pinned SDK's ``Config.LoRaConfig`` surface: enum members
+    as names (the session passes ready names through), scalars as
+    numbers, and proto3 zero defaults meaning "derive from the preset /
+    region plan".
+    """
+    values: dict[str, Any] = {
+        "use_preset": True,
+        "modem_preset": "LONG_FAST",
+        "region": "US",
+        "coding_rate": 0,
+        "hop_limit": 3,
+        "channel_num": 0,
+        "override_frequency": 0.0,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def _hold_lora_facts(adapter: MeshtasticAdapter, lora: Any) -> None:
+    """Install a session whose client's held local config carries LoRa state.
+
+    Mirrors the production path: the SDK receive pipeline copies the
+    radio's ``LoRaConfig`` into ``localNode.localConfig.lora`` during the
+    initial config exchange, and the session reads it under the client
+    lock at activation.  Only in-memory fake state is used.
+    """
+    session = MeshtasticSession(make_meshtastic_config(), "mesh-1", "meshtastic")
+    session._activate_client(
+        SimpleNamespace(
+            myInfo=SimpleNamespace(my_node_num=0xA4B3C2D1),
+            localNode=SimpleNamespace(localConfig=SimpleNamespace(lora=lora)),
+        )
+    )
+    session._refresh_node_id()
+    adapter._session = session
+
+
+def _lora_facts_of(adapter: MeshtasticAdapter) -> list[tuple[str, Any, str]]:
+    """The rendered ``(name, value, label)`` LoRa facts, if any."""
+    rows = adapter.startup_info()["rows"]
+    assert len(rows) <= 3
+    return [
+        (f["name"], f["value"], f["label"]) for f in (rows[2] if len(rows) > 2 else [])
+    ]
+
+
+def test_rich_lora_config_renders_every_distinguishing_setting() -> None:
+    """A fully configured radio reports region, preset, and every override."""
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    _hold_lora_facts(
+        adapter,
+        _lora_double(
+            region="EU_868",
+            modem_preset="MEDIUM_FAST",
+            coding_rate=5,
+            hop_limit=5,
+            override_frequency=867.5,
+            channel_num=27,
+        ),
+    )
+    assert _lora_facts_of(adapter) == [
+        ("region", "EU_868", "region"),
+        ("preset", "MEDIUM_FAST", "preset"),
+        ("coding_rate", "4/5", "coding rate"),
+        ("hop_limit", 5, "hop limit"),
+        ("frequency_override", "867.5 MHz", "frequency override"),
+        ("frequency_slot", 27, "frequency slot"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("lora_overrides", "expected"),
+    [
+        pytest.param(
+            {},
+            [
+                ("region", "US", "region"),
+                ("preset", "LONG_FAST", "preset"),
+                ("hop_limit", 3, "hop limit"),
+            ],
+            id="stock-config",
+        ),
+        pytest.param(
+            {"use_preset": False},
+            [("region", "US", "region"), ("hop_limit", 3, "hop limit")],
+            id="manual-fields-omit-preset",
+        ),
+        pytest.param(
+            {"region": "UNSET"},
+            [
+                ("region", "UNSET", "region"),
+                ("preset", "LONG_FAST", "preset"),
+                ("hop_limit", 3, "hop limit"),
+            ],
+            id="unset-region-still-reports",
+        ),
+        pytest.param(
+            {"coding_rate": 8},
+            [
+                ("region", "US", "region"),
+                ("preset", "LONG_FAST", "preset"),
+                ("coding_rate", "4/8", "coding rate"),
+                ("hop_limit", 3, "hop limit"),
+            ],
+            id="coding-rate-override",
+        ),
+        pytest.param(
+            {"coding_rate": 12},
+            [
+                ("region", "US", "region"),
+                ("preset", "LONG_FAST", "preset"),
+                ("coding_rate", 12, "coding rate"),
+                ("hop_limit", 3, "hop limit"),
+            ],
+            id="coding-rate-out-of-range-reports-raw",
+        ),
+        pytest.param(
+            {"override_frequency": 915.0},
+            [
+                ("region", "US", "region"),
+                ("preset", "LONG_FAST", "preset"),
+                ("hop_limit", 3, "hop limit"),
+                ("frequency_override", "915 MHz", "frequency override"),
+            ],
+            id="frequency-override",
+        ),
+        pytest.param(
+            {"channel_num": 14},
+            [
+                ("region", "US", "region"),
+                ("preset", "LONG_FAST", "preset"),
+                ("hop_limit", 3, "hop limit"),
+                ("frequency_slot", 14, "frequency slot"),
+            ],
+            id="frequency-slot",
+        ),
+    ],
+)
+def test_lora_facts_follow_held_radio_settings(
+    lora_overrides: dict[str, Any], expected: list[tuple[str, Any, str]]
+) -> None:
+    """Only settings that distinguish the radio's link render as facts."""
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    _hold_lora_facts(adapter, _lora_double(**lora_overrides))
+    assert _lora_facts_of(adapter) == expected
+
+
+def test_default_derived_lora_values_render_no_row() -> None:
+    """A radio with only default-derived LoRa values burns no extra row."""
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    _hold_lora_facts(
+        adapter,
+        _lora_double(use_preset=False, region=None, hop_limit=0),
+    )
+    rows = adapter.startup_info()["rows"]
+    assert len(rows) == 2
+    assert [f["name"] for f in rows[0]] == ["node_id"]
+    assert [f["name"] for f in rows[1]] == ["connection_type"]
+
+
+def test_lora_facts_omitted_without_held_radio_config() -> None:
+    """Clients without the held ``LoRaConfig`` never offer LoRa facts."""
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    _session_with_payload(adapter, None)
+    rows = adapter.startup_info()["rows"]
+    assert len(rows) == 2
+    names = [f["name"] for row in rows for f in row]
+    assert "region" not in names
+    assert "preset" not in names
+
+
+async def test_replacement_client_does_not_inherit_lora_facts(
+    make_adapter_context,
+) -> None:
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    await adapter.start(make_adapter_context("mesh-1"))
+    try:
+        _hold_lora_facts(adapter, _lora_double())
+        session = adapter._session
+        assert session is not None
+        session._activate_client(SimpleNamespace(myInfo=None))
+        assert session.startup_identity_snapshot()[3] is None
+        assert _lora_facts_of(adapter) == []
+    finally:
+        await adapter.stop()
+
+
+async def test_rich_lora_facts_render_through_core_within_row_cap(
+    make_adapter_context,
+) -> None:
+    """The full LoRa fact set stays inside core's per-adapter row cap."""
+    adapter = MeshtasticAdapter(make_meshtastic_config())
+    await adapter.start(make_adapter_context("mesh-1"))
+    try:
+        _hold_lora_facts(
+            adapter,
+            _lora_double(
+                region="EU_868",
+                modem_preset="MEDIUM_FAST",
+                coding_rate=5,
+                hop_limit=5,
+                override_frequency=867.5,
+                channel_num=27,
+            ),
+        )
+        info = await collect_startup_info(
+            "mesh-1", "meshtastic", adapter, emitted_at=_EMITTED_AT
+        )
+        assert info is not None
+        rendered = [(f.name, f.row, f.value, f.label) for f in info.fields]
+        assert rendered == [
+            ("node_id", 0, "!a4b3c2d1", None),
+            ("connection_type", 1, "fake", "link"),
+            ("region", 2, "EU_868", "region"),
+            ("preset", 2, "MEDIUM_FAST", "preset"),
+            ("coding_rate", 2, "4/5", "coding rate"),
+            ("hop_limit", 2, "5", "hop limit"),
+            ("frequency_override", 2, "867.5 MHz", "frequency override"),
+            ("frequency_slot", 2, "27", "frequency slot"),
+        ]
+        assert info.extra_rows == 0
+        lines = render_startup_info_block("meshtastic.mesh-1  ready", info).splitlines()
+        assert lines[0] == "meshtastic.mesh-1  ready"
+        # The provider leaves the node label unspecified; both core renderers
+        # are supported (same hedge as the identity-fact tests above).
+        assert lines[1] in {"  !a4b3c2d1", "  node id !a4b3c2d1"}
+        assert lines[2] == "  link fake"
+        assert lines[3] == (
+            "  region EU_868 · preset MEDIUM_FAST · coding rate 4/5"
+            " · hop limit 5 · frequency override 867.5 MHz · frequency slot 27"
+        )
+    finally:
+        await adapter.stop()
+
+
+async def test_fake_adapter_renders_staged_lora_facts() -> None:
+    """Fake parity: staged LoRa facts render like the real session's."""
+    adapter = FakeMeshtasticAdapter(adapter_id="fake_mesh")
+    adapter.lora_facts = LoRaRadioFacts(
+        region="US",
+        preset="LONG_FAST",
+        hop_limit=3,
+    )
+    info = await collect_startup_info(
+        "fake_mesh", "meshtastic", adapter, emitted_at=_EMITTED_AT
+    )
+    assert info is not None
+    assert [(f.name, f.row, f.value, f.label) for f in info.fields] == [
+        ("connection_type", 0, "fake", "link"),
+        ("region", 1, "US", "region"),
+        ("preset", 1, "LONG_FAST", "preset"),
+        ("hop_limit", 1, "3", "hop limit"),
+    ]
+    assert render_startup_info_block("meshtastic.fake_mesh  ready", info) == (
+        "meshtastic.fake_mesh  ready\n"
+        "  link fake\n"
+        "  region US · preset LONG_FAST · hop limit 3"
+    )
+
+
+async def test_empty_lora_facts_object_renders_no_row() -> None:
+    """A held-but-empty fact object burns no row (only-when-meaningful)."""
+    adapter = FakeMeshtasticAdapter(adapter_id="fake_mesh")
+    adapter.lora_facts = LoRaRadioFacts()
+    info = await collect_startup_info(
+        "fake_mesh", "meshtastic", adapter, emitted_at=_EMITTED_AT
+    )
+    assert info is not None
+    assert [f.name for f in info.fields] == ["connection_type"]
+
+
+@pytest.mark.meshtastic_sdk
+def test_sdk_lora_config_enums_resolve_to_protobuf_names() -> None:
+    """Wire-form integers resolve through the pinned SDK's LoRa enums."""
+    config_pb2 = import_module("meshtastic.protobuf.config_pb2")
+    config = make_meshtastic_config()
+    adapter = MeshtasticAdapter(config)
+    _hold_lora_facts(
+        adapter,
+        config_pb2.Config.LoRaConfig(
+            use_preset=True,
+            modem_preset=config_pb2.Config.LoRaConfig.LONG_MODERATE,
+            region=config_pb2.Config.LoRaConfig.US,
+            hop_limit=3,
+        ),
+    )
+    assert _lora_facts_of(adapter) == [
+        ("region", "US", "region"),
+        ("preset", "LONG_MODERATE", "preset"),
+        ("hop_limit", 3, "hop limit"),
+    ]
+
+
+@pytest.mark.meshtastic_sdk
+def test_sdk_lora_unknown_enum_value_is_omitted() -> None:
+    """An enum value the pinned SDK does not know is omitted, not guessed."""
+    config_pb2 = import_module("meshtastic.protobuf.config_pb2")
+    config = make_meshtastic_config()
+    adapter = MeshtasticAdapter(config)
+    _hold_lora_facts(
+        adapter,
+        config_pb2.Config.LoRaConfig(region=255, hop_limit=2),
+    )
+    assert _lora_facts_of(adapter) == [("hop_limit", 2, "hop limit")]
