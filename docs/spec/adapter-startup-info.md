@@ -44,10 +44,17 @@ The LoRa row leads with the link's identity and shape: the modem
 preset (label `preset`, only while the radio is actually using a
 preset, i.e. `use_preset` is set — with manual bandwidth and spreading
 factors the preset is meaningless and omitted), the hop limit (label
-`hop limit`), and the frequency slot (label `frequency slot`, the
-radio's `channel_num`, only when set — zero means the firmware derives
-the channel number from the channel name hash). The override pair
-follows: the frequency override (label `frequency override`, rendered
+`hop limit`), and the frequency slot (label `frequency slot`). The
+frequency slot renders in one of two shapes: as the radio's
+`channel_num` when the radio pins an explicit slot, or — when the
+delivered LoRa config carries `channel_num` zero — as
+`derived (name hash)`, the configuration fact that the firmware
+derives the slot from the channel-name hash (the pinned `LoRaConfig`
+field rule). The adapter reports the derivation as semantics and never
+computes the hash itself; the fact keeps its `frequency_slot` name in
+both shapes, and the override pair still follows it. When the LoRa
+config was never delivered the fact is absent altogether. The override
+pair follows: the frequency override (label `frequency override`, rendered
 in MHz, only when the radio overrides the region plan) immediately
 before the coding rate override (label `coding rate`, rendered as the
 `4/N` ratio, for valid manual rates or when the configured rate raises

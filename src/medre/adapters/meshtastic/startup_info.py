@@ -39,6 +39,13 @@ class LoRaRadioFacts:
     ``coding_rate`` is a valid explicit manual denominator or a rate
     higher than the known preset's denominator; ``frequency_override``
     is the held override frequency in MHz.
+
+    The frequency slot is captured in one of two mutually exclusive
+    shapes: an explicit ``frequency_slot`` number when the radio pins
+    one, or ``frequency_slot_derived`` when the delivered config leaves
+    ``channel_num`` at its zero default — meaning the firmware derives
+    the slot from the channel-name hash.  The derived flag carries the
+    configuration semantics only; the adapter never computes the hash.
     """
 
     region: str | None = None
@@ -47,6 +54,7 @@ class LoRaRadioFacts:
     hop_limit: int | None = None
     frequency_override: float | None = None
     frequency_slot: int | None = None
+    frequency_slot_derived: bool = False
 
 
 def _lora_facts_row(facts: LoRaRadioFacts) -> list[dict[str, Any]] | None:
@@ -58,7 +66,12 @@ def _lora_facts_row(facts: LoRaRadioFacts) -> list[dict[str, Any]] | None:
     settings that distinguish this radio's link render: unset overrides
     (zero means "derive from the preset / region plan") are omitted, and
     the preset appears only when the radio is actually using one
-    (``use_preset``).  The region always renders when held — including
+    (``use_preset``).  The frequency slot renders either as the radio's
+    explicit ``channel_num`` or, when the delivered config leaves the
+    zero default, as the ``derived (name hash)`` marker for the
+    firmware's channel-name-hash rule — the fact keeps its
+    ``frequency_slot`` name in both shapes, and a frequency override
+    still follows it.  The region always renders when held — including
     an unset region, which is itself the operationally relevant fact
     that the radio cannot transmit — but it reads as the row's closing
     qualifier rather than its lead.
@@ -75,6 +88,14 @@ def _lora_facts_row(facts: LoRaRadioFacts) -> list[dict[str, Any]] | None:
             {
                 "name": "frequency_slot",
                 "value": facts.frequency_slot,
+                "label": "frequency slot",
+            }
+        )
+    elif facts.frequency_slot_derived:
+        row.append(
+            {
+                "name": "frequency_slot",
+                "value": "derived (name hash)",
                 "label": "frequency slot",
             }
         )
