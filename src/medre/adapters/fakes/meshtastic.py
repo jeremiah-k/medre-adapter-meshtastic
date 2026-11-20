@@ -232,6 +232,7 @@ class FakeMeshtasticAdapter(AdapterContract):
         # Held startup device facts, mirroring the real session's capture
         # for fake parity (see startup_info()); tests stage these to
         # mirror what the real session holds after the radio handshake.
+        self.node_name: str | None = None
         self.firmware_version: str | None = None
         self.board_model: str | None = None
         self.lora_facts: LoRaRadioFacts | None = None
@@ -364,13 +365,14 @@ class FakeMeshtasticAdapter(AdapterContract):
         """Startup facts mirroring the real adapter's pure-read provider.
 
         The fake owns no session, so no node address is ever reported;
-        only configured endpoint facts appear, followed by the held
-        device release facts (staged via ``firmware_version`` /
-        ``board_model``) and LoRa link settings (staged via
-        ``lora_facts``) to mirror the real session's capture.
+        only configured endpoint facts appear, followed by the staged
+        local node name (``node_name``), the held device release facts
+        (``firmware_version`` / ``board_model``), and LoRa link settings
+        (``lora_facts``) to mirror the real session's capture.
         """
         return build_startup_info(
             self._config,
+            node_name=self.node_name,
             firmware_version=self.firmware_version,
             board_model=self.board_model,
             lora_facts=self.lora_facts,
