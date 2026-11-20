@@ -54,7 +54,7 @@ from medre.adapters.meshtastic.codec import MeshtasticCodec
 from medre.adapters.meshtastic.event_shape import MESHTASTIC_NATIVE_SCHEMA_VERSION
 from medre.adapters.meshtastic.packet_classifier import MeshtasticPacketClassifier
 from medre.adapters.meshtastic.startup_backlog import extract_meshtastic_rx_time
-from medre.adapters.meshtastic.startup_info import build_startup_info
+from medre.adapters.meshtastic.startup_info import LoRaRadioFacts, build_startup_info
 from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _logger = logging.getLogger(__name__)
@@ -234,6 +234,7 @@ class FakeMeshtasticAdapter(AdapterContract):
         # mirror what the real session holds after the radio handshake.
         self.firmware_version: str | None = None
         self.board_model: str | None = None
+        self.lora_facts: LoRaRadioFacts | None = None
         # Startup packet drain — mirrors the real adapter's content-
         # independent drop window armed at each successful start; see
         # _check_startup_packet_drain.
@@ -365,12 +366,14 @@ class FakeMeshtasticAdapter(AdapterContract):
         The fake owns no session, so no node address is ever reported;
         only configured endpoint facts appear, followed by the held
         device release facts (staged via ``firmware_version`` /
-        ``board_model``) to mirror the real session's capture.
+        ``board_model``) and LoRa link settings (staged via
+        ``lora_facts``) to mirror the real session's capture.
         """
         return build_startup_info(
             self._config,
             firmware_version=self.firmware_version,
             board_model=self.board_model,
+            lora_facts=self.lora_facts,
         )
 
     # -- Outbound delivery --------------------------------------------------

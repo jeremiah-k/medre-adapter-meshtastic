@@ -11,10 +11,11 @@ this page fixes only what this adapter supplies.
 The provider MUST format facts the adapter already holds and MUST NOT
 perform device or radio I/O, acquire resources, or mutate session
 state. A synchronous callable is safe on any worker thread: the node
-address and the device release facts are atomic snapshots of session
-state held under the session's client lock. Refresh and client
-replacement use that same lock; a replacement client cannot inherit the
-previous client's node address, firmware release, or board model.
+address, the device release facts, and the LoRa link settings are
+atomic snapshots of session state held under the session's client
+lock. Refresh and client replacement use that same lock; a replacement
+client cannot inherit the previous client's node address, firmware
+release, board model, or LoRa settings.
 
 The first row carries the node identity when held: the session's own
 node address (`!` plus lowercase hex of the radio's `my_node_num`),
@@ -23,20 +24,39 @@ The second row carries the configured endpoint: the connection type and
 its endpoint detail (TCP host and port, serial device, or BLE address),
 followed by the held device release facts — the radio's firmware
 release (label `firmware`) and board model (label `board`) — after the
-endpoint detail. The provider chooses two rows, so the release facts
-share the endpoint row.
+endpoint detail. The third row carries the radio's LoRa link settings,
+and is offered only when at least one setting meaningfully differs
+from its derived default; the release facts share the endpoint row
+while the LoRa settings get a dedicated row.
 
-The device release facts are connect-flow state capture, not new
-device I/O: the radio delivers its `DeviceMetadata` (firmware version
-and hardware model) during the same initial config exchange that
-delivers `myInfo`, and the session stores it atomically with the node
-identity under the client lock at every activation. Facts that are not
-held MUST be omitted rather than probed: a radio that has not (yet)
-delivered its metadata leaves the release facts absent, and the
-adapter never requests them with a dedicated admin message. The
-adapter still never gathers channel or hop state, so it does not offer
-them; channel counts on the session are an unpopulated placeholder and
-MUST NOT be reported as device facts.
+The LoRa row reports the region (label `region`, rendered whenever the
+radio's LoRa config is held — an unset region is itself the
+operationally relevant fact that the radio cannot transmit), the modem
+preset (label `preset`, only while the radio is actually using a
+preset, i.e. `use_preset` is set — with manual bandwidth and spreading
+factors the preset is meaningless and omitted), the coding rate
+override (label `coding rate`, rendered as the `4/N` ratio, only when
+the radio raises the preset's coding rate), the hop limit (label
+`hop limit`), the frequency override (label `frequency override`,
+rendered in MHz, only when the radio overrides the region plan), and
+the frequency slot (label `frequency slot`, the radio's `channel_num`,
+only when set — zero means the firmware derives the channel number
+from the channel name hash). Enum fields render as their pinned-SDK
+protobuf enum names (e.g. `US`, `LONG_FAST`), never as raw integers.
+
+The device release and LoRa facts are connect-flow state capture, not
+new device I/O: the radio delivers its `DeviceMetadata` (firmware
+version and hardware model), and its `LoRaConfig` is copied by the SDK
+receive pipeline into the local node's config cache, during the same
+initial config exchange that delivers `myInfo`; the session stores
+these atomically with the node identity under the client lock at every
+activation. Facts that are not held MUST be omitted rather than
+probed: a radio that has not (yet) delivered its config exchange
+leaves the release and LoRa facts absent, and the adapter never
+requests them with a dedicated admin message. The adapter still never
+gathers channel counts, so it does not offer them; channel counts on
+the session are an unpopulated placeholder and MUST NOT be reported as
+device facts.
 
 ## Decoupling
 

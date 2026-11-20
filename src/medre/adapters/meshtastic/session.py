@@ -27,6 +27,7 @@ from medre.adapters.meshtastic.errors import (
     MeshtasticConnectionError,
     MeshtasticSendError,
 )
+from medre.adapters.meshtastic.startup_info import LoRaRadioFacts
 from medre.config.adapters.meshtastic import MeshtasticConfig
 
 _logger = logging.getLogger(__name__)
@@ -41,6 +42,86 @@ _LIVENESS_INITIAL_DELAY_SECONDS: float = 5.0
 
 # Maximum transient retry attempts for outbound send.
 _MAX_SEND_RETRIES: int = 3
+
+
+def _lora_enum_name(enum_name: str, value: object) -> str | None:
+    """Resolve a LoRa ``LoRaConfig`` enum member to its protobuf name.
+
+    Integers (the wire form) resolve through the pinned SDK's
+    ``Config.LoRaConfig`` enums; non-empty strings pass through so
+    duck-typed fake clients can carry ready names.  Anything else —
+    including an out-of-range integer or a missing SDK — yields ``None``
+    and the fact is omitted rather than guessed.
+    """
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        try:
+            from meshtastic.protobuf import config_pb2
+
+            enum = getattr(config_pb2.Config.LoRaConfig, enum_name)
+            return str(enum.Name(value))
+        except (ImportError, AttributeError, ValueError):
+            return None
+    return None
+
+
+def _lora_positive_int(value: object) -> int | None:
+    """Keep a LoRa scalar only when it is a real (non-default) setting.
+
+    Protobuf scalar defaults mean "derive from the preset / region plan"
+    for every LoRa field the session reports, so zero is omitted.
+    """
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return None
+
+
+def _lora_frequency_override_mhz(value: object) -> float | None:
+    """Keep the frequency override only when the radio actually overrides.
+
+    ``LoRaConfig.override_frequency`` is a MHz float where zero means the
+    radio follows the region plan and channel number instead.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+        return float(value)
+    return None
+
+
+def _read_lora_radio_facts(client: Any) -> LoRaRadioFacts | None:
+    """Read the radio's held LoRa settings from client state, pure read.
+
+    The SDK receive pipeline copies the radio's ``LoRaConfig`` into
+    ``localNode.localConfig.lora`` during the same initial config
+    exchange that delivers ``myInfo`` and ``DeviceMetadata`` — so this
+    reads connect-flow state the client already holds, never issuing a
+    request.  Clients without the attribute (fakes, pre-config radios)
+    yield ``None`` and every fact is omitted rather than probed.
+    """
+    lora = getattr(
+        getattr(getattr(client, "localNode", None), "localConfig", None),
+        "lora",
+        None,
+    )
+    if lora is None or isinstance(lora, (str, bytes)):
+        return None
+    # The preset only means something when the radio is using one
+    # (``use_preset``); otherwise bandwidth/spread factor are manual.
+    preset = None
+    if getattr(lora, "use_preset", None):
+        preset = _lora_enum_name("ModemPreset", getattr(lora, "modem_preset", None))
+    return LoRaRadioFacts(
+        # Region always reports when resolvable — including UNSET, which
+        # is itself the operationally relevant "cannot transmit" fact.
+        region=_lora_enum_name("RegionCode", getattr(lora, "region", None)),
+        preset=preset,
+        coding_rate=_lora_positive_int(getattr(lora, "coding_rate", None)),
+        hop_limit=_lora_positive_int(getattr(lora, "hop_limit", None)),
+        frequency_override=_lora_frequency_override_mhz(
+            getattr(lora, "override_frequency", None)
+        ),
+        frequency_slot=_lora_positive_int(getattr(lora, "channel_num", None)),
+    )
 
 
 def _normalize_emoji_flag(emoji: object) -> int | None:
@@ -180,6 +261,7 @@ class MeshtasticSession:
         "_node_id",
         "_firmware_version",
         "_board_model",
+        "_lora_facts",
         "_channel_count",
         "_transient_delivery_failures",
         "_permanent_delivery_failures",
@@ -235,6 +317,7 @@ class MeshtasticSession:
         self._node_id: str | None = None
         self._firmware_version: str | None = None
         self._board_model: str | None = None
+        self._lora_facts: LoRaRadioFacts | None = None
         self._channel_count: int = 0
         self._transient_delivery_failures: int = 0
         self._permanent_delivery_failures: int = 0
@@ -303,6 +386,7 @@ class MeshtasticSession:
             self._node_id = None
             self._firmware_version = None
             self._board_model = None
+            self._lora_facts = None
             self._connection_generation += 1
 
     def _prepare_initial_ingress(self) -> None:
@@ -342,6 +426,7 @@ class MeshtasticSession:
             self._node_id = None
             self._firmware_version = None
             self._board_model = None
+            self._lora_facts = None
             self._connection_generation += 1
             return client
 
@@ -374,10 +459,21 @@ class MeshtasticSession:
         with self._client_state_lock:
             return self._node_id
 
-    def startup_identity_snapshot(self) -> tuple[str | None, str | None, str | None]:
-        """Read one generation of held node and release facts without SDK I/O."""
+    def startup_identity_snapshot(
+        self,
+    ) -> tuple[str | None, str | None, str | None, LoRaRadioFacts | None]:
+        """Read one generation of held node, release, and LoRa facts without SDK I/O.
+
+        All returned facts were captured together under the client-state
+        lock, so the snapshot is never torn across a client replacement.
+        """
         with self._client_state_lock:
-            return self._node_id, self._firmware_version, self._board_model
+            return (
+                self._node_id,
+                self._firmware_version,
+                self._board_model,
+                (self._lora_facts),
+            )
 
     @property
     def firmware_version(self) -> str | None:
@@ -533,6 +629,7 @@ class MeshtasticSession:
                 self._node_id = None
                 self._firmware_version = None
                 self._board_model = None
+                self._lora_facts = None
             self._prepare_initial_ingress()
             self._initial_receive_ready = True
         else:
@@ -1231,7 +1328,7 @@ class MeshtasticSession:
             self._subscribed_connection_lost = False
 
     def _refresh_node_id(self) -> None:
-        """Populate the held node address and device release facts from client state.
+        """Populate the held node address, release facts, and LoRa settings.
 
         Called after every successful connect (and re-connect) and lazily
         from ``_on_receive`` while the node address is still ``None``
@@ -1240,17 +1337,19 @@ class MeshtasticSession:
 
         The node address derives from ``interface.myInfo.my_node_num``.
         The firmware release and board model derive from the radio's
-        ``DeviceMetadata`` (``interface.metadata``), which the SDK stores
-        from the same initial config exchange that delivers ``myInfo`` —
-        no additional request is issued.  All three are captured under
-        the client-state lock so a reader never sees a torn identity
-        snapshot, and a replacement client cannot inherit the previous
-        client's values.
+        ``DeviceMetadata`` (``interface.metadata``), and the LoRa link
+        settings from the radio's ``LoRaConfig``
+        (``localNode.localConfig.lora``) — all delivered by the SDK's
+        initial config exchange, so no additional request is issued.
+        All of it is captured under the client-state lock so a reader
+        never sees a torn identity snapshot, and a replacement client
+        cannot inherit the previous client's values.
         """
         with self._client_state_lock:
             self._node_id = None
             self._firmware_version = None
             self._board_model = None
+            self._lora_facts = None
             client = self._client
             if client is None:
                 return
@@ -1277,6 +1376,7 @@ class MeshtasticSession:
                     self._board_model = mesh_pb2.HardwareModel.Name(board_model)
                 except (ImportError, ValueError):
                     self._board_model = None
+            self._lora_facts = _read_lora_radio_facts(client)
 
     def _on_receive(self, packet: dict[str, Any], interface: Any = None) -> None:
         """Pubsub callback for inbound packets from the active SDK client.
@@ -1375,6 +1475,7 @@ class MeshtasticSession:
             self._node_id = None
             self._firmware_version = None
             self._board_model = None
+            self._lora_facts = None
             self._last_error = reason
             loop = self._loop
         self._logger.warning(
