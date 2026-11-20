@@ -1728,22 +1728,24 @@ class MeshtasticAdapter(AdapterContract):
         Core duck-types this callable at the ready transition and renders
         the returned scalar facts; display ordering and caps are core's
         business.  Pure read: no device or radio I/O, no resource
-        acquisition, no session mutation — the node address, the device
-        release facts, and the radio's LoRa link settings are atomic
-        snapshots of session state held under the session's client lock,
-        safe to call from any worker thread.  Facts not held yet (e.g.
-        the node address or the device release facts before the radio's
-        handshake payload arrives) are omitted rather than probed.
+        acquisition, no session mutation — the node address, the local
+        node name, the device release facts, and the radio's LoRa link
+        settings are atomic snapshots of session state held under the
+        session's client lock, safe to call from any worker thread.
+        Facts not held yet (e.g. the node address or the device release
+        facts before the radio's handshake payload arrives) are omitted
+        rather than probed.
         """
         session = self._session
-        node_id, firmware_version, board_model, lora_facts = (
+        node_id, node_name, firmware_version, board_model, lora_facts = (
             session.startup_identity_snapshot()
             if session is not None
-            else (None, None, None, None)
+            else (None, None, None, None, None)
         )
         return build_startup_info(
             self._config,
             node_id=node_id,
+            node_name=node_name,
             firmware_version=firmware_version,
             board_model=board_model,
             lora_facts=lora_facts,
