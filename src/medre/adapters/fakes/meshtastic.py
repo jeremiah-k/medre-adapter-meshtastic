@@ -229,6 +229,11 @@ class FakeMeshtasticAdapter(AdapterContract):
         self._adapter_start_epoch: float | None = None
         self._startup_backlog_packets_seen: int = 0
         self._startup_backlog_packets_suppressed: int = 0
+        # Held startup device facts, mirroring the real session's capture
+        # for fake parity (see startup_info()); tests stage these to
+        # mirror what the real session holds after the radio handshake.
+        self.firmware_version: str | None = None
+        self.board_model: str | None = None
         # Startup packet drain — mirrors the real adapter's content-
         # independent drop window armed at each successful start; see
         # _check_startup_packet_drain.
@@ -358,9 +363,15 @@ class FakeMeshtasticAdapter(AdapterContract):
         """Startup facts mirroring the real adapter's pure-read provider.
 
         The fake owns no session, so no node address is ever reported;
-        only configured endpoint facts appear.
+        only configured endpoint facts appear, followed by the held
+        device release facts (staged via ``firmware_version`` /
+        ``board_model``) to mirror the real session's capture.
         """
-        return build_startup_info(self._config)
+        return build_startup_info(
+            self._config,
+            firmware_version=self.firmware_version,
+            board_model=self.board_model,
+        )
 
     # -- Outbound delivery --------------------------------------------------
 
