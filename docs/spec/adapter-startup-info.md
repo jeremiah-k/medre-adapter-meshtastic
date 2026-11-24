@@ -3,7 +3,7 @@
 Core's runtime duck-types an optional `startup_info()` callable on a
 built adapter, collecting the returned scalar facts at the adapter's
 ready transition. Core owns the timing and layout of the rendered banner.
-The full provider contract, redaction policy, cache behavior, and
+The full adapter contract, redaction policy, cache behavior, and
 presentation rules are owned by the core specification;
 this page fixes only what this adapter supplies.
 
