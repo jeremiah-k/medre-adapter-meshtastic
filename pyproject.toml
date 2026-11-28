@@ -1,12 +1,12 @@
 [project]
 name = "medre-adapter-meshtastic"
-version = "0.2.1"
+version = "0.3.0"
 readme = "README.md"
 description = "meshtastic transport adapter for MEDRE"
 requires-python = ">=3.11"
 classifiers = ["Typing :: Typed"]
 license = "MIT"
-dependencies = ["medre>=0.2.0,<0.3.0", 'mtjk==2.7.11.post14', 'PyPubSub==4.0.7']
+dependencies = ["medre>=0.3.0,<0.4.0", 'mtjk==2.7.11.post14', 'PyPubSub==4.0.7']
 
 [project.entry-points."medre.adapters"]
 meshtastic = "medre.adapters.meshtastic.plugin:adapter_spec"
